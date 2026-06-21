@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lệnh Xuất Kho Phụ Liệu</title>
+    <link rel="stylesheet" href="lenhxuat.css">
+</head>
+<body>
+    <div class="container">
+        <header class="page-header">
+            <div class="company-info" id="company-info-area">
+                <h1 class="brand-title">DCL</h1>
+                <div class="brand-sub">
+                    <p class="header-mahang"><strong>Mã hàng:</strong> <span class="highlight-code">341410-SS26</span></p>
+                    <p class="header-plan-detail"><strong>Model:</strong> 8787780 &nbsp;|&nbsp; <strong>Tổ:</strong> Tổ 4x1 &nbsp;|&nbsp; <strong>Đợt:</strong> đợt 2</p>
+                </div>
+            </div>
+            <div class="document-info">
+                <h2>LỆNH XUẤT KHO PHỤ LIỆU</h2>
+                <p style="margin-bottom: 12px;"><strong>Ngày lập:</strong> <span id="creation-date"></span></p>
+                <div class="actions" style="justify-content: flex-end; margin-bottom: 0;">
+                    <button id="excel-button" onclick="exportToExcel()">📊 Excel</button>
+                    <button id="print-button" onclick="window.print()">🖨️ In Phiếu</button>
+                </div>
+            </div>
+        </header>
+
+        <section class="plan-details">
+            <div id="khsx-details-container">
+            </div>
+        </section>
+
+        <main>
+            <section class="data-section">
+                <h3>DANH SÁCH PHỤ LIỆU XUẤT KHO</h3>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Mã Hàng</th>
+                                <th>Model</th>
+                                <th>Loại PL</th>
+                                <th>Size VT</th>
+                                <th>Màu</th>
+                                <th>PO</th>
+                                <th>Khoang</th>
+                                <th>Tồn Kho</th>
+                                <th>Tổng SL Cần</th>
+                                <th>SL Xuất</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dispatch-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="shortage-section-container" class="data-section">
+            </section>
+        </main>
+        
+        <footer class="page-footer">
+            <div class="signature">
+                <p><strong>Người Lập Phiếu</strong></p>
+                <p>(Ký, ghi rõ họ tên)</p>
+            </div>
+            <div class="signature">
+                <p><strong>Thủ Kho</strong></p>
+                <p>(Ký, ghi rõ họ tên)</p>
+            </div>
+            <div class="signature">
+                <p><strong>Người Nhận</strong></p>
+                <p>(Ký, ghi rõ họ tên)</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="lenhxuat.js"></script>
+</body>
+</html>

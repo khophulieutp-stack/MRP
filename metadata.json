@@ -1,0 +1,6 @@
+{
+  "name": "Lệnh Cấp Phát",
+  "description": "Hoạch định nhu cầu vật tư, tính toán định mức phụ liệu và quản lý tồn kho đồng bộ thông minh.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
