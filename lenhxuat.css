@@ -1,0 +1,560 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ===================================================================
+ * CHỦ ĐỀ CHUYÊN NGHIỆP - KHO PHỤ LIỆU
+ * =================================================================== */
+:root {
+  --color-brand-primary: #1e293b; /* Dark slate */
+  --color-brand-accent: #4f46e5;  /* Indigo accent */
+  --color-text-main: #0f172a;      /* Deep slate gray */
+  --color-text-muted: #475569;     /* Cool gray */
+  --color-bg-light: #f8fafc;       /* Off-white slate background */
+  --color-bg-white: #ffffff;
+  --color-border-subtle: #cbd5e1;  /* Slate 300 */
+  --color-border-dark: #334155;    /* Slate 700 */
+  
+  --color-shortage-critical: #e11d48; /* Red 600 */
+  --color-shortage-critical-bg: #fff1f2;
+  --color-shortage-partial: #d97706;  /* Amber 600 */
+  --color-shortage-partial-bg: #fef3c7;
+  
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f1f5f9;
+  color: var(--color-text-main);
+  line-height: 1.5;
+  padding: 40px 20px;
+}
+
+/* Container */
+.container {
+  max-width: 1050px;
+  margin: 0 auto;
+  background-color: var(--color-bg-white);
+  padding: 42px 50px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-border-subtle);
+  position: relative;
+}
+
+/* Header */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid var(--color-brand-primary);
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+  gap: 24px;
+}
+
+.company-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+.company-info h1.brand-title {
+  font-size: 26px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-brand-accent);
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  line-height: 1;
+}
+
+.brand-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.header-mahang {
+  font-size: 14px;
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.header-plan-detail {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.highlight-code {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-brand-primary);
+  background-color: var(--color-bg-light);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border-subtle);
+  font-size: 12px;
+  display: inline-block;
+  word-break: break-all;
+  max-width: 100%;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.detail-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.detail-divider {
+  color: var(--color-border-subtle);
+  font-weight: 500;
+  margin: 0 4px;
+  user-select: none;
+}
+
+.document-info {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  min-width: max-content;
+}
+
+.document-info h2 {
+  font-size: 23px;
+  font-weight: 800;
+  color: var(--color-brand-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.document-info p {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
+}
+
+.document-info strong {
+  color: var(--color-text-main);
+  font-weight: 600;
+}
+
+/* KHSX & Teams layout */
+.plan-details {
+  background-color: var(--color-bg-light);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  padding: 18px 24px;
+  margin-bottom: 28px;
+}
+
+/* Rendered by JS structures into #khsx-details-container */
+.details-table.khsx-summary {
+  width: 100%;
+  border-collapse: collapse;
+  border: none;
+}
+
+.details-table.khsx-summary > thead > tr > th,
+.details-table.khsx-summary > tbody > tr > th,
+.details-table.khsx-summary > thead > tr > td,
+.details-table.khsx-summary > tbody > tr > td {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* Layout split inside Details Frame */
+.khsx-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-brand-primary);
+  margin-bottom: 10px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.inner-khsx-table {
+  width: max-content;
+  max-width: 100%;
+  margin: 10px auto;
+  border-collapse: collapse;
+  background-color: var(--color-bg-white);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.inner-khsx-table th,
+.inner-khsx-table td {
+  border: 1px solid var(--color-border-subtle) !important;
+  padding: 8px 14px !important;
+  text-align: center !important;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.inner-khsx-table th {
+  font-weight: 600;
+  background-color: #f1f5f9;
+  color: var(--color-text-muted);
+}
+
+.inner-khsx-table td {
+  font-weight: 700;
+  color: var(--color-brand-accent);
+  font-size: 13px;
+}
+
+.dispatch-info-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding-left: 20px;
+  border-left: 2px solid var(--color-border-subtle);
+}
+
+.model-dispatch-info {
+  font-size: 13px;
+  color: var(--color-text-main);
+}
+
+.model-dispatch-info strong {
+  font-weight: 600;
+  color: var(--color-brand-accent);
+}
+
+/* Actions Bar */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+#print-button,
+#excel-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-bg-white);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+#print-button {
+  background-color: var(--color-brand-accent);
+}
+
+#excel-button {
+  background-color: #10b981; /* Emerald green */
+}
+
+#print-button:hover,
+#excel-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#print-button:active,
+#excel-button:active {
+  transform: translateY(0);
+}
+
+/* Data Table Sections */
+.data-section {
+  margin-bottom: 32px;
+}
+
+.data-section h3 {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-brand-primary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-container {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.data-table th {
+  background-color: #f1f5f9;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+  border-bottom: 2px solid var(--color-border-subtle);
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  color: var(--color-text-main);
+}
+
+.data-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+/* Align helper classes */
+.align-left {
+  text-align: left;
+}
+
+/* Alternating rows or group start styles */
+.data-table tr.group-start td {
+  border-top: 2px solid var(--color-border-subtle);
+}
+
+.data-table td strong {
+  font-weight: 600;
+  color: var(--color-brand-accent);
+}
+
+/* Shortage section design styling */
+.shortage-table {
+  width: 100%;
+}
+
+.shortage-table th {
+  background-color: #fff1f2;
+  color: #9f1239;
+  border-bottom: 2px solid #fecdd3;
+}
+
+.critical-shortage {
+  background-color: var(--color-shortage-critical-bg) !important;
+  color: #9f1239;
+}
+
+.critical-shortage td {
+  border-bottom: 1px solid #fecdd3;
+}
+
+.partial-shortage {
+  background-color: var(--color-shortage-partial-bg) !important;
+  color: #92400e;
+}
+
+.partial-shortage td {
+  border-bottom: 1px solid #fde68a;
+}
+
+/* Table wrapper helper inside shortage box */
+.table-wrapper {
+  overflow-hidden: true;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+/* Footer & Signatures */
+.page-footer {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 45px;
+  border-top: 1.5px solid var(--color-border-subtle);
+  padding-top: 28px;
+}
+
+.signature {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 120px;
+}
+
+.signature p:first-child {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-brand-primary);
+  text-transform: uppercase;
+}
+
+.signature p:last-child {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+/* ===================================================================
+ * ĐỊNH DẠNG HOÀN TOÀN KHI IN ẤN (A4 PRINT OPTIMAL)
+ * =================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm 15mm 15mm 15mm;
+  }
+
+  body {
+    background-color: var(--color-bg-white) !important;
+    background: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 11.5px;
+  }
+
+  .container {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .page-header {
+    border-bottom: 2px solid #000000 !important;
+    padding-bottom: 15px !important;
+    margin-bottom: 20px !important;
+  }
+  
+  .company-info h1 {
+    font-size: 16px !important;
+    color: #000000 !important;
+  }
+  
+  .document-info h2 {
+    font-size: 19px !important;
+    color: #000000 !important;
+  }
+
+  .plan-details {
+    background-color: #f8fafc !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 12px 18px !important;
+    margin-bottom: 20px !important;
+  }
+
+  .inner-khsx-table {
+    border: 1px solid #94a3b8 !important;
+  }
+
+  .inner-khsx-table th,
+  .inner-khsx-table td {
+    border: 1px solid #94a3b8 !important;
+    padding: 6px 10px !important;
+  }
+
+  .inner-khsx-table th {
+    background-color: #f1f5f9 !important;
+    color: #475569 !important;
+  }
+
+  .inner-khsx-table td {
+    color: #000000 !important;
+  }
+
+  .actions {
+    display: none !important;
+  }
+
+  .table-container,
+  .table-wrapper {
+    border: 1px solid #000000 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .data-table {
+    font-size: 11px !important;
+  }
+
+  .data-table th {
+    background-color: #f1f5f9 !important;
+    color: #000000 !important;
+    border-bottom: 1.5px solid #000000 !important;
+    padding: 6px 8px !important;
+  }
+
+  .data-table td {
+    border-bottom: 1px solid #94a3b8 !important;
+    padding: 6px 8px !important;
+    color: #000000 !important;
+  }
+
+  .data-table tr.group-start td {
+    border-top: 1.5px solid #000000 !important;
+  }
+  
+  .data-table td strong {
+    color: #000000 !important;
+  }
+
+  .critical-shortage {
+    background-color: #fff1f2 !important;
+    color: #9f1239 !important;
+  }
+  
+  .partial-shortage {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+  }
+
+  .page-footer {
+    margin-top: 35px !important;
+    border-top: 1.5px solid #000000 !important;
+    padding-top: 20px !important;
+    page-break-inside: avoid;
+  }
+
+  .signature {
+    min-height: 100px !important;
+  }
+
+  .signature p:first-child {
+    color: #000000 !important;
+  }
+}
