@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileSpreadsheet, Trash2, Save, AlertTriangle } from 'lucide-react';
+import { Upload, FileSpreadsheet, Trash2, Save, AlertTriangle, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export interface BomRow {
@@ -14,13 +14,14 @@ export interface BomRow {
 
 interface BomManagementProps {
   bomData: BomRow[];
-  onSaveBom: (data: BomRow[]) => void;
+  onSaveBom: (data: BomRow[]) => void | Promise<void>;
   isAdmin?: boolean;
 }
 
 export function BomManagement({ bomData, onSaveBom, isAdmin = false }: BomManagementProps) {
   const [localBomData, setLocalBomData] = useState<BomRow[]>(bomData);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,9 +67,17 @@ export function BomManagement({ bomData, onSaveBom, isAdmin = false }: BomManage
     }
   };
 
-  const handleSaveData = () => {
-    onSaveBom(localBomData);
-    alert('Đã lưu dữ liệu BOM thành công!');
+  const handleSaveData = async () => {
+    setIsSaving(true);
+    try {
+      await onSaveBom(localBomData);
+      alert('Đã lưu dữ liệu BOM cục bộ và đồng bộ lên Đám mây (Firestore) thành công!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Đã xảy ra lỗi khi đồng bộ BOM lên Đám mây: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const confirmClear = () => {
@@ -101,11 +110,11 @@ export function BomManagement({ bomData, onSaveBom, isAdmin = false }: BomManage
             className="hidden"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            disabled={!isAdmin}
+            disabled={!isAdmin || isSaving}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading || !isAdmin}
+            disabled={isUploading || isSaving || !isAdmin}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Upload className="w-4 h-4" />
@@ -113,17 +122,26 @@ export function BomManagement({ bomData, onSaveBom, isAdmin = false }: BomManage
           </button>
           
           <button
-            disabled={localBomData.length === 0 || !isAdmin}
+            disabled={localBomData.length === 0 || !isAdmin || isSaving}
             onClick={handleSaveData}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-sm font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            Lưu BOM
+            {isSaving ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Đồng bộ Cloud...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Lưu BOM
+              </>
+            )}
           </button>
 
           <button
             onClick={() => setShowClearConfirm(true)}
-            disabled={localBomData.length === 0 || !isAdmin}
+            disabled={localBomData.length === 0 || !isAdmin || isSaving}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors shadow-sm font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />

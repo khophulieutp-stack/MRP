@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Rules for Warehouses collection
+    match /warehouses/{deviceId} {
+      allow read, write: if true;
+    }
+    
+    // Rules for BOM database
+    match /bom_definitions/{maHang} {
+      allow read, write: if true;
+    }
+    
+    // Rules for Dispatches commands
+    match /dispatches/{dispatchId} {
+      allow read, write: if true;
+    }
+  }
+}

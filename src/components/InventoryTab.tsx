@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Package, Search, RefreshCw, Calendar, Clock, Inbox, ChevronDown, CheckCircle, Database } from 'lucide-react';
+import { Package, Search, RefreshCw, Calendar, Clock, Inbox, ChevronDown, CheckCircle, Database, Radio, Laptop } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface InventoryItem {
   'MÃ HÀNG'?: string;
@@ -24,8 +26,39 @@ export function InventoryTab() {
   const [filterType, setFilterLoai] = useState('ALL');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const loadSyncedData = () => {
+  const [nodeMode, setNodeMode] = useState<'warehouse' | 'remote'>('warehouse');
+  const [remoteWarehouseId, setRemoteWarehouseId] = useState('');
+  const [remoteWarehouseName, setRemoteWarehouseName] = useState('');
+
+  const loadSyncedData = async () => {
     setIsRefreshing(true);
+    const mode = localStorage.getItem('nodeMode') as 'warehouse' | 'remote' || 'warehouse';
+    const remId = localStorage.getItem('remoteWarehouseId') || '';
+    setNodeMode(mode);
+    setRemoteWarehouseId(remId);
+
+    if (mode === 'remote' && remId) {
+      try {
+        const docRef = doc(db, 'warehouses', remId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const wData = docSnap.data();
+          setRemoteWarehouseName(wData.name || '');
+          if (wData.scrapedInventoryData) {
+            setItems(wData.scrapedInventoryData);
+          }
+          if (wData.lastSyncTime) {
+            setLastSync(wData.lastSyncTime);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load remote warehouse inventory:", err);
+      } finally {
+        setIsRefreshing(false);
+      }
+      return;
+    }
+
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.get(['scrapedInventoryData', 'lastSyncTime'], (res) => {
@@ -48,12 +81,12 @@ export function InventoryTab() {
         } else {
           // Initialize mock fallback for trial/demo
           const mockData = [
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '12CM', 'MÀU': '960', 'PO': 'PO-882218', 'KHOANG': 'A-02', 'TỒN': '1500', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '22CM', 'MÀU': 'V7834', 'PO': 'PO-882218', 'KHOANG': 'A-03', 'TỒN': '850', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '18CM', 'MÀU': 'VI385', 'PO': 'PO-882001', 'KHOANG': 'B-12', 'TỒN': '320', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO PHẢI', 'TS / SIZE': '52.5CM', 'MÀU': '884', 'PO': 'PO-882190', 'KHOANG': 'B-14', 'TỒN': '400', 'ĐVT': 'Tấm' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787779', 'LOẠI': 'DÂY KÉO SƯỜN ỐNG', 'TS / SIZE': '61 cm', 'MÀU': 'VI385', 'PO': 'PO-882250', 'KHOANG': 'C-01', 'TỒN': '20', 'ĐVT': 'Băng' },
-            { 'MÃ HÀNG': '341411-SS26', 'MODEL': '992019', 'LOẠI': 'CÚC KIM LOẠI', 'TS / SIZE': '15MM', 'MÀU': 'Niken', 'PO': 'PO-882330', 'KHOANG': 'D-05', 'TỒN': '5000', 'ĐVT': 'Viên' }
+            { 'KHOANG': 'A-02', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '12CM', 'MÀU': '960', 'PO': 'PO-882218', 'SL NHẬP': '2000', 'SL XUẤT': '500', 'TỒN': '1500', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'A-03', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '22CM', 'MÀU': 'V7834', 'PO': 'PO-882218', 'SL NHẬP': '1000', 'SL XUẤT': '150', 'TỒN': '850', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'B-12', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '18CM', 'MÀU': 'VI385', 'PO': 'PO-882001', 'SL NHẬP': '320', 'SL XUẤT': '0', 'TỒN': '320', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'B-14', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO PHẢI', 'TS / SIZE': '52.5CM', 'MÀU': '884', 'PO': 'PO-882190', 'SL NHẬP': '500', 'SL XUẤT': '100', 'TỒN': '400', 'ĐVT': 'Tấm' },
+            { 'KHOANG': 'C-01', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787779', 'LOẠI': 'DÂY KÉO SƯỜN ỐNG', 'TS / SIZE': '61 cm', 'MÀU': 'VI385', 'PO': 'PO-882250', 'SL NHẬP': '20', 'SL XUẤT': '0', 'TỒN': '20', 'ĐVT': 'Băng' },
+            { 'KHOANG': 'D-05', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341411-SS26', 'MODEL': '992019', 'LOẠI': 'CÚC KIM LOẠI', 'TS / SIZE': '15MM', 'MÀU': 'Niken', 'PO': 'PO-882330', 'SL NHẬP': '5000', 'SL XUẤT': '0', 'TỒN': '5000', 'ĐVT': 'Viên' }
           ];
           setItems(mockData);
           localStorage.setItem('scrapedInventoryData', JSON.stringify(mockData));
@@ -70,6 +103,11 @@ export function InventoryTab() {
   useEffect(() => {
     loadSyncedData();
 
+    const onCloudConfigChange = () => {
+      loadSyncedData();
+    };
+    document.addEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+
     // Lắng nghe sự kiện storage thay đổi từ content script hoặc background
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
       const handleStorageChange = (changes: any, areaName: string) => {
@@ -78,8 +116,14 @@ export function InventoryTab() {
         }
       };
       chrome.storage.onChanged.addListener(handleStorageChange);
-      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+      return () => {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+        document.removeEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+      };
     }
+    return () => {
+      document.removeEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+    };
   }, []);
 
   const uniqueMaHangs = useMemo(() => {
@@ -136,14 +180,21 @@ export function InventoryTab() {
           </div>
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              Tồn kho
-              <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold items-center gap-1 border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Đang tự động đồng bộ
+              {nodeMode === 'remote' ? `Tồn kho từ xa: ${remoteWarehouseName || 'Đang kết nối...'}` : 'Tồn kho cục bộ'}
+              <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-xs font-semibold items-center gap-1 border ${
+                nodeMode === 'remote' 
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${nodeMode === 'remote' ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
+                {nodeMode === 'remote' ? 'Bộ điều khiển Cloud' : 'Máy trạm kho hoạt động'}
               </span>
             </h2>
             <p className="text-sm text-slate-500 mt-0.5 leading-relaxed">
-              Dữ liệu tồn kho thực tế được tự động đồng bộ từ hệ thống ERP tại <a href="https://khoerp-vn.web.app/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline font-medium">khoerp-vn.web.app</a> hoặc <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">172.20.0.5:8080</span>.
+              {nodeMode === 'remote' 
+                ? `Đồng bộ trực tuyến thời gian thực từ mã máy trạm: ${remoteWarehouseId || 'Trống'}`
+                : 'Đang hoạt động tại máy trạm kho. Đồng bộ tồn từ ERP tự động lên Đám Mây cho phép điều khiển từ xa.'
+              }
             </p>
           </div>
         </div>
@@ -233,6 +284,8 @@ export function InventoryTab() {
                   <th className="px-4 py-3 whitespace-nowrap">Màu sắc</th>
                   <th className="px-4 py-3 whitespace-nowrap">Mã P.O</th>
                   <th className="px-4 py-3 whitespace-nowrap">Vị trí (Khoang)</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">Nhập</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">Xuất</th>
                   <th className="px-4 py-3 text-right whitespace-nowrap">Số lượng tồn kho</th>
                   <th className="px-4 py-3 text-center whitespace-nowrap">ĐVT</th>
                 </tr>
@@ -240,6 +293,8 @@ export function InventoryTab() {
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.map((item, idx) => {
                   const ton = parseFloat(item['TỒN'] || '0');
+                  const nhap = parseFloat(item['SL NHẬP'] || '0');
+                  const xuat = parseFloat(item['SL XUẤT'] || '0');
                   return (
                     <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
                       <td className="px-4 py-2.5 text-xs text-slate-400 font-mono">{idx + 1}</td>
@@ -255,6 +310,12 @@ export function InventoryTab() {
                       <td className="px-4 py-2.5 font-mono text-xs">{item['PO'] || '---'}</td>
                       <td className="px-4 py-2.5 font-mono text-[13px]">
                         <span className="text-blue-700 font-semibold">{item['KHOANG'] || '---'}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-medium text-slate-500 font-mono">
+                        {nhap.toLocaleString('en-US')}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-medium text-slate-500 font-mono">
+                        {xuat.toLocaleString('en-US')}
                       </td>
                       <td className="px-4 py-2.5 text-right font-bold text-emerald-600 font-mono">
                         {ton.toLocaleString('en-US')}

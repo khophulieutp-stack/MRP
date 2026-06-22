@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { BomRow } from './BomManagement';
-import { Calculator, Package, Layers, ChevronRight, Check, X } from 'lucide-react';
+import { Calculator, Package, Layers, ChevronRight, Check, X, Cloud, CloudOff, RefreshCw, Send, Radio, Laptop, CheckCircle, Database, HelpCircle } from 'lucide-react';
+import { db, listenToWarehousesCloud, getBomFromCloud, syncInventoryToCloud, sendRemoteDispatch, Warehouse } from '../lib/firebase';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 
 interface PlanningTabProps {
   bomData: BomRow[];
@@ -12,6 +14,14 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, number>>({});
 
   const [inventoryData, setInventoryData] = useState<any[]>([]);
+  const [nodeMode, setNodeMode] = useState<'warehouse' | 'remote'>('warehouse');
+  const [deviceId, setDeviceId] = useState('');
+  const [remoteWarehouseId, setRemoteWarehouseId] = useState('');
+  const [activeBomData, setActiveBomData] = useState<BomRow[]>(bomData);
+  const [cloudMaHangs, setCloudMaHangs] = useState<string[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [syncingCloud, setSyncingCloud] = useState(false);
+  const [cloudSuccessMessage, setCloudSuccessMessage] = useState<string | null>(null);
   const [isScraping, setIsScraping] = useState(false);
 
   const [availableTeams, setAvailableTeams] = useState<{ id: string; name: string }[]>([]);
@@ -106,9 +116,108 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
     }
   }, []);
 
-  const maHangOptions = useMemo(() => {
-    return Array.from(new Set(bomData.map(row => row.maHang))).filter(Boolean);
+  // Sync Cloud configurations and fetch Cloud lists
+  useEffect(() => {
+    const updateCloudStates = () => {
+      const mode = localStorage.getItem('nodeMode') as 'warehouse' | 'remote' || 'warehouse';
+      setNodeMode(mode);
+      const devId = localStorage.getItem('deviceId') || '';
+      setDeviceId(devId);
+      const remId = localStorage.getItem('remoteWarehouseId') || '';
+      setRemoteWarehouseId(remId);
+    };
+
+    updateCloudStates();
+    window.addEventListener('storage', updateCloudStates);
+    document.addEventListener('CLOUD_CONFIG_UPDATED', updateCloudStates);
+    return () => {
+      window.removeEventListener('storage', updateCloudStates);
+      document.removeEventListener('CLOUD_CONFIG_UPDATED', updateCloudStates);
+    };
+  }, []);
+
+  // Fetch available cloud BOM list & listen to warehouses
+  useEffect(() => {
+    const colRef = collection(db, 'bom_definitions');
+    getDocs(colRef).then((snapshot) => {
+      const list: string[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.id);
+      });
+      setCloudMaHangs(list);
+    }).catch(err => {
+      console.error("Error fetching cloud BOM list:", err);
+    });
+
+    if (nodeMode === 'remote') {
+      const unsubscribe = listenToWarehousesCloud((list) => {
+        setWarehouses(list);
+      });
+      return () => unsubscribe();
+    }
+  }, [nodeMode]);
+
+  // Download remote warehouse inventory data when in Remote mode
+  useEffect(() => {
+    if (nodeMode === 'remote' && remoteWarehouseId) {
+      setSyncingCloud(true);
+      const docRef = doc(db, 'warehouses', remoteWarehouseId);
+      getDoc(docRef).then((docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.scrapedInventoryData) {
+            setInventoryData(data.scrapedInventoryData);
+            console.log("Remote: Synced warehouse inventory loaded.");
+          }
+        }
+        setSyncingCloud(false);
+      }).catch(err => {
+        console.error("Failed to load inventory remotely:", err);
+        setSyncingCloud(false);
+      });
+    }
+  }, [nodeMode, remoteWarehouseId]);
+
+  // Sync activeBomData with incoming prop, and handle deep-fetching for selected MaHang on Cloud
+  useEffect(() => {
+    setActiveBomData(bomData);
   }, [bomData]);
+
+  useEffect(() => {
+    if (selectedMaHang) {
+      const hasLocal = bomData.some(row => row.maHang === selectedMaHang);
+      if (!hasLocal || nodeMode === 'remote') {
+        getBomFromCloud(selectedMaHang).then((rows) => {
+          if (rows && rows.length > 0) {
+            console.log(`BOM downloaded from Cloud for: ${selectedMaHang} (${rows.length} rows)`);
+            setActiveBomData(prev => {
+              const filtered = prev.filter(r => r.maHang !== selectedMaHang);
+              return [...filtered, ...rows];
+            });
+          }
+        }).catch(err => console.error("Failed to download cloud BOM:", err));
+      }
+    }
+  }, [selectedMaHang, bomData, nodeMode]);
+
+  // Auto-sync inventory data in Warehouse mode to Firebase Firestore
+  useEffect(() => {
+    if (nodeMode === 'warehouse' && deviceId && inventoryData.length > 0) {
+      const deviceName = localStorage.getItem('deviceName') || 'Máy Trạm Kho ' + deviceId.split('-')[1];
+      const timeout = setTimeout(() => {
+        syncInventoryToCloud(deviceId, deviceName, inventoryData)
+          .then(() => console.log("Cloud: Synced local inventory to firestore."))
+          .catch(err => console.error("Cloud: Failed to sync inventory:", err));
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [inventoryData, nodeMode, deviceId]);
+
+  const maHangOptions = useMemo(() => {
+    const localCodes = bomData.map(row => row.maHang).filter(Boolean);
+    const set = new Set([...localCodes, ...cloudMaHangs]);
+    return Array.from(set).filter(Boolean);
+  }, [bomData, cloudMaHangs]);
 
   const scrapeInventory = async () => {
     setIsScraping(true);
@@ -133,6 +242,110 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
             func: () => {
               const dataTable = document.querySelector("table");
               if (!dataTable) return [];
+
+              function normalizeText(text: string | null | undefined) {
+                  if (!text) return "";
+                  return text.replace(/[\s\u00A0]+/g, ' ').trim();
+              }
+
+              function getCellFullText(cell: Element | null | undefined, isNumeric: boolean = false) {
+                  if (!cell) return "";
+
+                  // 1. Kiểm tra nếu có thẻ input, textarea, select (có thể hiển thị dạng form nhập liệu)
+                  const formEl = cell.querySelector("input, textarea, select") as any;
+                  if (formEl) {
+                      const val = formEl.value;
+                      if (val && val.trim()) {
+                          return normalizeText(val);
+                      }
+                  }
+
+                  // ĐỐI VỚI NUMERIC COLUMNS (SL), BỎ QUA ATTRIBUTE ĐỂ TRÁNH ICON SỬA
+                  if (isNumeric) {
+                      return normalizeText(cell.textContent);
+                  }
+
+                  // 2. Tìm thẻ link 'a'. URL thường chứa tham số gốc không bị rút gọn.
+                  const link = cell.querySelector("a");
+                  if (link && link.href) {
+                      try {
+                          // Đảm bảo parse URL chính xác và thay thế tất cả &amp; bằng & trước khi phân tích
+                          let hrefAttr = link.getAttribute("href") || "";
+                          hrefAttr = hrefAttr.replace(/&amp;/gi, "&");
+                          
+                          let url;
+                          if (hrefAttr.startsWith("http://") || hrefAttr.startsWith("https://")) {
+                              url = new URL(hrefAttr);
+                          } else {
+                              url = new URL(hrefAttr, window.location.href || 'http://localhost');
+                          }
+
+                          // Kiểm tra các tham số truy vấn phổ biến hoặc bất kỳ tham số nào có giá trị dài/không bị cắt
+                          const searchParams = url.searchParams;
+                          // Danh sách tham số ưu tiên
+                          const priorityParams = ['loaipl', 'loai', 'name', 'ten', 'loai_pl', 'loai_phu_lieu', 'ma_phu_lieu', 'value'];
+                          for (const p of priorityParams) {
+                              // Thử tìm theo tham số chuẩn, hoặc tham số có tiền tố "amp;" trong trường hợp encode bị lỗi
+                              let val = searchParams.get(p);
+                              if (!val) {
+                                  val = searchParams.get('amp;' + p);
+                              }
+                              if (val && val.trim()) {
+                                  return normalizeText(val);
+                              }
+                          }
+
+                          // Nếu không có tham số ưu tiên, duyệt qua tất cả tham số để tìm giá trị dài nhất
+                          let longestParamVal = "";
+                          for (const [key, val] of (searchParams as any).entries()) {
+                              // Loại bỏ tiền tố "amp;" khỏi key trong quá trình so sánh nếu có
+                              if (val && val.trim() && val.length > longestParamVal.length) {
+                                  longestParamVal = val;
+                              }
+                          }
+                          if (longestParamVal && longestParamVal.length > 5) {
+                              return normalizeText(longestParamVal);
+                          }
+                      } catch (e) {
+                          // Bỏ qua lỗi parse URL
+                      }
+                  }
+
+                  // 3. Kiểm tra các thuộc tính chứa text đầy đủ của cell hoặc các phần tử con
+                  // Các thuộc tính Tooltip hoặc Data thường chứa text nguyên bản
+                  const attributesToCheck = [
+                      "title", 
+                      "data-original-title", 
+                      "data-value", 
+                      "data-text", 
+                      "data-name", 
+                      "data-content", 
+                      "alt"
+                  ];
+
+                  // Kiểm tra trên bản thân cell
+                  for (const attr of attributesToCheck) {
+                      const val = cell.getAttribute(attr);
+                      if (val && val.trim()) {
+                          return normalizeText(val);
+                      }
+                  }
+
+                  // Kiểm tra trên các thẻ con (span, a, div, dfn, label...)
+                  const children = cell.querySelectorAll("*");
+                  for (let i = 0; i < children.length; i++) {
+                      const child = children[i];
+                      for (const attr of attributesToCheck) {
+                          const val = child.getAttribute(attr);
+                          if (val && val.trim()) {
+                              return normalizeText(val);
+                          }
+                      }
+                  }
+
+                  // 4. Fallback lấy textContent thông thường
+                  return normalizeText(cell.textContent);
+              }
 
               let headers: string[] = [];
               let dataRows: Element[] = [];
@@ -161,56 +374,91 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
 
               if (headers.length === 0) return [];
 
+              // Chuẩn hóa tiêu đề cột để tương ứng
+              const normalizedHeaders = headers.map(h => {
+                  const val = h.toUpperCase().trim();
+                  if (val === 'THÔNG SỐ / SIZE' || val === 'THÔNG SỐ/SIZE' || val === 'SIZE' || val === 'TS / SIZE') {
+                      return 'TS / SIZE';
+                  }
+                  if (val === 'ĐƠN VỊ' || val === 'ĐV' || val === 'ĐVT' || val === 'ĐƠN VỊ TÍNH') {
+                      return 'ĐVT';
+                  }
+                  return val;
+              });
+
               const scrapedData = dataRows.map(row => {
                   const rowData: Record<string, string> = {};
                   const cells = row.querySelectorAll("td");
 
                   if (cells.length > 0) {
-                      headers.forEach((header, index) => {
+                      normalizedHeaders.forEach((header, index) => {
                           if (header && cells[index]) {
-                              let cellText = '';
+                              const isNumeric = header === 'SL NHẬP' || header === 'SL XUẤT' || header === 'TỒN';
+                              let cellText = getCellFullText(cells[index], isNumeric);
 
-                              if (header === 'LOẠI') {
-                                  const link = cells[index].querySelector("a");
-                                  if (link && link.href) {
-                                      try {
-                                          const url = new URL(link.href, window.location.href);
-                                          const loaipl = url.searchParams.get('loaipl');
-                                          cellText = loaipl ? loaipl.trim() : (cells[index].textContent?.trim() || '');
-                                      } catch (e) {
-                                          cellText = cells[index].textContent?.trim() || '';
-                                      }
-                                  } else {
-                                      cellText = cells[index].textContent?.trim() || '';
-                                  }
-                              } 
-                              else {
-                                  cellText = cells[index].textContent?.trim() || '';
-                              }
-
-                              if (header === 'SL NHẬP' || header === 'SL XUẤT' || header === 'TỒN') {
+                              if (isNumeric) {
                                   const cleanedText = cellText.replace(/,/g, ''); 
                                   const numberMatch = cleanedText.match(/[\d.]+/);
                                   cellText = numberMatch ? numberMatch[0] : '0';
+                              } else {
+                                  cellText = cellText.toUpperCase();
                               }
 
                               rowData[header] = cellText;
                           }
                       });
 
-                      if (!rowData['TỒN']) {
-                          rowData['TỒN'] = rowData['SL NHẬP'] || '0';
-                      }
+                      const slNhap = parseFloat(rowData['SL NHẬP'] || '0');
+                      const slXuat = parseFloat(rowData['SL XUẤT'] || '0');
+                      rowData['TỒN'] = String(slNhap - slXuat);
 
                       const isRowEmpty = Object.values(rowData).every(value => value === '' || value === '0');
                       if (isRowEmpty) return null;
+
+                      // Do NOT filter ton <= 0 here because we need to aggregate them first
 
                       return rowData;
                   }
                   return null;
               }).filter(Boolean);
 
-              return scrapedData;
+              const groupedMap: Record<string, any> = {};
+              scrapedData.forEach((row: any) => {
+                  const key = [
+                      normalizeText(row['MÃ HÀNG'] || ''),
+                      normalizeText(row['MODEL'] || ''),
+                      normalizeText(row['LOẠI'] || ''),
+                      normalizeText(row['TS / SIZE'] || row['THÔNG SỐ / SIZE'] || row['SIZE'] || ''),
+                      normalizeText(row['MÀU'] || ''),
+                      normalizeText(row['PO'] || ''),
+                      normalizeText(row['KHOANG'] || '')
+                  ].join('::');
+
+                  if (!key || key === '::::::') return;
+
+                  if (!groupedMap[key]) {
+                      groupedMap[key] = {
+                          ...row,
+                          'SL NHẬP': parseFloat(row['SL NHẬP'] || '0'),
+                          'SL XUẤT': parseFloat(row['SL XUẤT'] || '0')
+                      };
+                  } else {
+                      groupedMap[key]['SL NHẬP'] += parseFloat(row['SL NHẬP'] || '0');
+                      groupedMap[key]['SL XUẤT'] += parseFloat(row['SL XUẤT'] || '0');
+                  }
+              });
+
+              return Object.values(groupedMap).map((row: any) => {
+                  const nhap = row['SL NHẬP'];
+                  const xuat = row['SL XUẤT'];
+                  const ton = nhap - xuat;
+                  return {
+                      ...row,
+                      'SL NHẬP': String(nhap),
+                      'SL XUẤT': String(xuat),
+                      'TỒN': String(ton)
+                  };
+              }).filter((row: any) => parseFloat(row['TỒN']) > 0);
             }
           });
           if (results && results[0] && results[0].result) {
@@ -230,11 +478,11 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
         // Fallback for AI Studio Web Preview
         setTimeout(() => {
           const sampleData = [
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '12CM', 'MÀU': '960', 'PO': 'PO-882218', 'KHOANG': 'A-02', 'TỒN': '1500', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '22CM', 'MÀU': 'V7834', 'PO': 'PO-882218', 'KHOANG': 'A-03', 'TỒN': '850', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '18CM', 'MÀU': 'VI385', 'PO': 'PO-882001', 'KHOANG': 'B-12', 'TỒN': '320', 'ĐVT': 'Kg' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO PHẢI', 'TS / SIZE': '52.5CM', 'MÀU': '884', 'PO': 'PO-882190', 'KHOANG': 'B-14', 'TỒN': '400', 'ĐVT': 'Tấm' },
-            { 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787779', 'LOẠI': 'DÂY KÉO SƯỜN ỐNG', 'TS / SIZE': '61 cm', 'MÀU': 'VI385', 'PO': 'PO-882250', 'KHOANG': 'C-01', 'TỒN': '20', 'ĐVT': 'Băng' }
+            { 'KHOANG': 'A-02', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '12CM', 'MÀU': '960', 'PO': 'PO-882218', 'SL NHẬP': '2000', 'SL XUẤT': '500', 'TỒN': '1500', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'A-03', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787780', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '22CM', 'MÀU': 'V7834', 'PO': 'PO-882218', 'SL NHẬP': '1000', 'SL XUẤT': '150', 'TỒN': '850', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'B-12', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO', 'TS / SIZE': '18CM', 'MÀU': 'VI385', 'PO': 'PO-882001', 'SL NHẬP': '320', 'SL XUẤT': '0', 'TỒN': '320', 'ĐVT': 'Kg' },
+            { 'KHOANG': 'B-14', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8408745', 'LOẠI': 'DÂY KÉO PHẢI', 'TS / SIZE': '52.5CM', 'MÀU': '884', 'PO': 'PO-882190', 'SL NHẬP': '500', 'SL XUẤT': '100', 'TỒN': '400', 'ĐVT': 'Tấm' },
+            { 'KHOANG': 'C-01', 'KHÁCH': 'DCL', 'MÃ HÀNG': '341410-SS26', 'MODEL': '8787779', 'LOẠI': 'DÂY KÉO SƯỜN ỐNG', 'TS / SIZE': '61 cm', 'MÀU': 'VI385', 'PO': 'PO-882250', 'SL NHẬP': '20', 'SL XUẤT': '0', 'TỒN': '20', 'ĐVT': 'Băng' }
           ];
           setInventoryData(sampleData);
           localStorage.setItem('scrapedInventoryData', JSON.stringify(sampleData));
@@ -250,16 +498,16 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
 
   const availableModels = useMemo(() => {
     if (!selectedMaHang) return [];
-    const models = bomData
+    const models = activeBomData
       .filter(row => row.maHang === selectedMaHang)
       .map(row => row.moDel);
     return Array.from(new Set(models)).filter(Boolean).sort();
-  }, [selectedMaHang, bomData]);
+  }, [selectedMaHang, activeBomData]);
 
   const availableSizes = useMemo(() => {
     if (!selectedMaHang || selectedModels.length === 0) return [];
     
-    const relevantRows = bomData.filter(
+    const relevantRows = activeBomData.filter(
       row => row.maHang === selectedMaHang && selectedModels.includes(row.moDel)
     );
 
@@ -275,7 +523,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
     });
 
     return Array.from(sizes).sort();
-  }, [selectedMaHang, selectedModels, bomData]);
+  }, [selectedMaHang, selectedModels, activeBomData]);
 
   const toggleModel = (model: string) => {
     setSelectedModels(prev => 
@@ -291,7 +539,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
     if (selectedModels.length > 0) {
       (Object.entries(sizeQuantities) as [string, number][]).forEach(([sizeSP, qty]) => {
         if (qty > 0) {
-          const matchingRows = bomData.filter(row => 
+          const matchingRows = activeBomData.filter(row => 
             row.maHang === selectedMaHang &&
             selectedModels.includes(row.moDel) &&
             row.nhomSizeSP &&
@@ -318,7 +566,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
     }
 
     return Array.from(needs.values()).sort((a, b) => a.loai.localeCompare(b.loai));
-  }, [bomData, selectedMaHang, selectedModels, sizeQuantities]);
+  }, [activeBomData, selectedMaHang, selectedModels, sizeQuantities]);
 
   const handleSizeChange = (size: string, val: string) => {
     const parsed = parseInt(val, 10);
@@ -328,12 +576,12 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
     }));
   };
 
-  if (bomData.length === 0) {
+  if (activeBomData.length === 0 && cloudMaHangs.length === 0 && bomData.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-white rounded-lg shadow-sm border border-slate-200 p-8">
         <Package className="w-12 h-12 mb-4 text-slate-300" />
         <p className="font-semibold text-slate-600">Master Data Trống</p>
-        <p className="text-sm mt-1 text-slate-500">Vui lòng cập nhật Cơ sở dữ liệu BOM để sử dụng module Kế hoạch.</p>
+        <p className="text-sm mt-1 text-slate-500">Vui lòng cập nhật Cơ sở dữ liệu BOM (hoặc kết nối Cloud) để sử dụng module Kế hoạch.</p>
       </div>
     );
   }
@@ -349,6 +597,60 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* CLOUD CONNECT HEADER DROPDOWN (ONLY FOR REMOTE CONTROLLER MODE) */}
+          {nodeMode === 'remote' && (
+            <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-800 uppercase tracking-wider">
+                  <Radio className="w-4 h-4 text-indigo-600 animate-pulse" />
+                  Kết nối Kho từ xa
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-[10px] text-white font-bold tracking-widest uppercase">
+                  Remote Controller
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Chọn máy trạm tại kho gốc:</label>
+                <select
+                  value={remoteWarehouseId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setRemoteWarehouseId(id);
+                    localStorage.setItem('remoteWarehouseId', id);
+                    // Dispatch event
+                    document.dispatchEvent(new CustomEvent('CLOUD_CONFIG_UPDATED'));
+                  }}
+                  className="w-full border border-indigo-300 rounded-md py-1.5 px-2 text-xs font-semibold text-indigo-900 bg-white focus:outline-indigo-500 transition-all cursor-pointer"
+                >
+                  <option value="">-- Lựa chọn Máy Trạm --</option>
+                  {warehouses.map(w => (
+                    <option key={w.id} value={w.id}>
+                      📍 {w.name} ({w.id}) - {w.status === 'Online' ? 'Active' : 'Offline'}
+                    </option>
+                  ))}
+                </select>
+                {remoteWarehouseId && warehouses.find(w => w.id === remoteWarehouseId) && (
+                  <p className="text-[10px] text-indigo-600 font-medium">
+                    🟢 Máy Trạm đang kết nối. Đồng bộ kho hoàn tất.
+                  </p>
+                )}
+                {warehouses.length === 0 && (
+                  <p className="text-[10px] text-amber-600 font-semibold italic">
+                    ⚠️ Chưa tìm thấy máy trạm kho hoạt động. Chờ đồng bộ...
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* CLOUD SUCCESS BANNER */}
+          {cloudSuccessMessage && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 font-medium leading-relaxed shadow-sm relative animate-in zoom-in-95 duration-200">
+              <button onClick={() => setCloudSuccessMessage(null)} className="absolute top-1.5 right-1.5 text-emerald-400 hover:text-emerald-700 font-bold focus:outline-none">×</button>
+              <p className="pr-4">🎉 {cloudSuccessMessage}</p>
+            </div>
+          )}
+
           {/* STEP 1 */}
           <div className="group">
             <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -645,6 +947,38 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                         console.error('Failed to save to history', e);
                     }
                 
+                    // If in Remote controller mode, push dispatch to Cloud (Firestore)
+                    if (nodeMode === 'remote') {
+                        if (!remoteWarehouseId) {
+                            alert("Vui lòng chọn một Máy Trạm Kho tại cột Kết nối Kho từ xa ở bên trái.");
+                            return;
+                        }
+                        
+                        const cloudPayload = {
+                            maHang: selectedMaHang,
+                            models: selectedModels,
+                            khsxData,
+                            dispatchInfo,
+                            dispatchData,
+                            detailedNeedsData,
+                            fifoSuggestions,
+                            targetDeviceId: remoteWarehouseId,
+                            createdBy: localStorage.getItem('deviceName') || 'Bộ điều khiển từ xa'
+                        };
+                        
+                        setSyncingCloud(true);
+                        sendRemoteDispatch(cloudPayload)
+                            .then(() => {
+                                setCloudSuccessMessage(`Đã truyền và gửi Lệnh Xuất thành công đến Máy Trạm Kho: "${warehouses.find(w => w.id === remoteWarehouseId)?.name || remoteWarehouseId}"!`);
+                                setTimeout(() => setCloudSuccessMessage(null), 8500);
+                            })
+                            .catch(err => {
+                                console.error("Lỗi khi gửi lệnh từ xa:", err);
+                                alert("Gặp lỗi khi gửi lệnh cloud: " + err.message);
+                            })
+                            .finally(() => setSyncingCloud(false));
+                    }
+
                     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
                         chrome.storage.local.set({
                             dispatchData,
@@ -666,14 +1000,14 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                             window.open('/lenhxuat.html', '_blank');
                         } catch (err) {
                             console.error("Lỗi khi lưu và mở trang:", err);
-                            alert("Đã xảy ra lỗi khi mở lệnh xuất!");
                         }
                     }
                   }}
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold rounded-md shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold rounded-md shadow-sm transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  disabled={syncingCloud}
                 >
-                  <Check className="w-4 h-4" />
-                  Tạo Lệnh Xuất Kho
+                  {syncingCloud ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {nodeMode === 'remote' ? 'Gửi Lệnh Từ Xa' : 'Tạo Lệnh Xuất Kho'}
                 </button>
               )}
             </div>

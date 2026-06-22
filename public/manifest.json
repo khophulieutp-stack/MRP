@@ -13,7 +13,6 @@
     {
       "matches": [
         "http://172.20.0.5:8080/*",
-        "https://khoerp-vn.web.app/*",
         "file:///*"
       ],
       "js": ["content.js"],
@@ -22,7 +21,6 @@
   ],
   "host_permissions": [
     "http://172.20.0.5:8080/*",
-    "https://khoerp-vn.web.app/*",
     "file:///*"
   ],
   "action": {

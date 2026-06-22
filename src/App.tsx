@@ -3,35 +3,207 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { LayoutDashboard, History, FileSpreadsheet, Settings, Bell, Search, UserCircle, Menu, Package2, Layers, Users } from 'lucide-react';
+import { LayoutDashboard, History, FileSpreadsheet, Settings, Bell, Search, UserCircle, Menu, Package2, Layers, Users, Cloud, RefreshCw, XCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { BomManagement, BomRow } from './components/BomManagement';
 import { PlanningTab } from './components/PlanningTab';
 import { InventoryTab } from './components/InventoryTab';
 import { TeamsTab } from './components/TeamsTab';
 import { HistoryTab } from './components/HistoryTab';
+import { CloudSyncTab } from './components/CloudSyncTab';
+import { listenToRemoteDispatches, updateDispatchStatus, RemoteDispatch, syncBomToCloud, getAllBomsFromCloud } from './lib/firebase';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('planning');
   const [bomData, setBomData] = useState<BomRow[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [incomingDispatch, setIncomingDispatch] = useState<RemoteDispatch | null>(null);
 
-  // Load from locale storage on init
-  useEffect(() => {
+  // Play double beep sound when remote dispatches are received
+  const playIncomingBeep = () => {
     try {
-      const saved = localStorage.getItem('bomData');
-      if (saved) {
-        setBomData(JSON.parse(saved));
-      }
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playBeep = (freq: number, start: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime + start);
+        osc.start(ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration - 0.05);
+        osc.stop(ctx.currentTime + start + duration);
+      };
+      playBeep(880, 0, 0.2);
+      playBeep(880, 0.25, 0.2);
     } catch (e) {
-      console.error('Failed to load BOM from storage', e);
+      console.warn("AudioContext block", e);
     }
+  };
+
+  // Load from local storage and cloud database on init
+  useEffect(() => {
+    const loadBoms = async () => {
+      let localData: BomRow[] = [];
+      try {
+        const saved = localStorage.getItem('bomData');
+        if (saved) {
+          localData = JSON.parse(saved);
+          setBomData(localData);
+        }
+      } catch (e) {
+        console.error('Failed to load BOM from storage', e);
+      }
+
+      try {
+        console.log("Cloud Agent: Fetching all BOM definitions from Firestore...");
+        const cloudBoms = await getAllBomsFromCloud();
+        if (cloudBoms && cloudBoms.length > 0) {
+          // Group local and cloud BOMs and map by maHang
+          const localGroups: Record<string, BomRow[]> = {};
+          localData.forEach(row => {
+            if (!row.maHang) return;
+            const m = row.maHang.trim();
+            if (!localGroups[m]) localGroups[m] = [];
+            localGroups[m].push(row);
+          });
+          
+          const cloudGroups: Record<string, BomRow[]> = {};
+          cloudBoms.forEach(row => {
+            if (!row.maHang) return;
+            const m = row.maHang.trim();
+            if (!cloudGroups[m]) cloudGroups[m] = [];
+            cloudGroups[m].push(row);
+          });
+          
+          // Combine: prefers cloud, falls back to local
+          const finalBoms: BomRow[] = [];
+          const allKeys = new Set([...Object.keys(localGroups), ...Object.keys(cloudGroups)]);
+          allKeys.forEach(m => {
+            if (cloudGroups[m]) {
+              finalBoms.push(...cloudGroups[m]);
+            } else if (localGroups[m]) {
+              finalBoms.push(...localGroups[m]);
+            }
+          });
+          
+          setBomData(finalBoms);
+          localStorage.setItem('bomData', JSON.stringify(finalBoms));
+          console.log(`Cloud Agent: Loaded and merged BOM database. Total ${finalBoms.length} rows.`);
+        }
+      } catch (err) {
+        console.error("Cloud Agent: Failed to fetch BOMs from cloud:", err);
+      }
+    };
+    
+    loadBoms();
+    
+    // Also listen to system updates to reload BOMs in the background
+    const handleSyncReset = () => {
+      loadBoms();
+    };
+    document.addEventListener('CLOUD_CONFIG_UPDATED', handleSyncReset);
+    return () => document.removeEventListener('CLOUD_CONFIG_UPDATED', handleSyncReset);
   }, []);
 
-  const handleSaveBom = (data: BomRow[]) => {
+  // Listen to remote dispatches in background (Warehouse Agent role)
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    const setupListener = () => {
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = undefined;
+      }
+
+      const mode = localStorage.getItem('nodeMode') || 'warehouse';
+      const devId = localStorage.getItem('deviceId') || '';
+
+      if (mode === 'warehouse' && devId) {
+        console.log(`Cloud Agent: Listening to incoming dispatches for device "${devId}"`);
+        unsubscribe = listenToRemoteDispatches(devId, (dispatches) => {
+          const pending = dispatches.filter(d => d.status === 'Pending');
+          if (pending.length > 0) {
+            const newest = pending[0];
+            setIncomingDispatch(newest);
+            playIncomingBeep();
+          }
+        });
+      }
+    };
+
+    setupListener();
+
+    // Recheck on credential/node settings changes
+    document.addEventListener('CLOUD_CONFIG_UPDATED', setupListener);
+    return () => {
+      if (unsubscribe) unsubscribe();
+      document.removeEventListener('CLOUD_CONFIG_UPDATED', setupListener);
+    };
+  }, []);
+
+  const handleAcceptIncomingDispatch = async () => {
+    if (!incomingDispatch) return;
+    try {
+      const resultPayload = {
+        dispatchData: incomingDispatch.dispatchData || [],
+        detailedNeedsData: incomingDispatch.detailedNeedsData || {},
+        khsxData: incomingDispatch.khsxData || [],
+        fifoSuggestions: incomingDispatch.fifoSuggestions || [],
+        dispatchInfo: incomingDispatch.dispatchInfo || {}
+      };
+
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set(resultPayload, async () => {
+          await updateDispatchStatus(incomingDispatch.id, 'Completed');
+          setIncomingDispatch(null);
+          window.open('/lenhxuat.html', '_blank');
+        });
+      } else {
+        localStorage.setItem('dispatchData', JSON.stringify(resultPayload.dispatchData));
+        localStorage.setItem('detailedNeedsData', JSON.stringify(resultPayload.detailedNeedsData));
+        localStorage.setItem('khsxData', JSON.stringify(resultPayload.khsxData));
+        localStorage.setItem('fifoSuggestions', JSON.stringify(resultPayload.fifoSuggestions));
+        localStorage.setItem('dispatchInfo', JSON.stringify(resultPayload.dispatchInfo));
+
+        await updateDispatchStatus(incomingDispatch.id, 'Completed');
+        setIncomingDispatch(null);
+        window.open('/lenhxuat.html', '_blank');
+      }
+    } catch (err: any) {
+      alert("Lỗi tải lệnh xuất: " + err.message);
+    }
+  };
+
+  const handleSaveBom = async (data: BomRow[]) => {
     setBomData(data);
     localStorage.setItem('bomData', JSON.stringify(data));
+
+    try {
+      console.log("Cloud Agent: Syncing saved local BOM to the Cloud...");
+      // Group by maHang
+      const groups: Record<string, BomRow[]> = {};
+      data.forEach(row => {
+        if (!row.maHang) return;
+        const key = row.maHang.trim();
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      });
+
+      const promises = Object.entries(groups).map(([maHang, rows]) => {
+        return syncBomToCloud(maHang, rows);
+      });
+      await Promise.all(promises);
+      
+      // Notify other tabs
+      document.dispatchEvent(new CustomEvent('CLOUD_CONFIG_UPDATED'));
+      console.log("Cloud Agent: Successfully synchronized raw BOM data to Cloud database.");
+    } catch (err: any) {
+      console.error("Cloud Agent: Failed to sync BOM data to Google Firestore:", err);
+      throw err;
+    }
   };
 
   return (
@@ -144,6 +316,22 @@ export default function App() {
                )}
              </button>
 
+            <button
+               onClick={() => setActiveTab('cloud')}
+               className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                 activeTab === 'cloud'
+                   ? 'bg-blue-600/10 text-blue-400'
+                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+               } ${!isSidebarOpen && 'justify-center'}`}
+               title="Đồng bộ Đám mây"
+             >
+               <Cloud className="w-5 h-5 shrink-0 text-blue-400" />
+               {isSidebarOpen && <span className="truncate">Đồng bộ Đám mây</span>}
+               {activeTab === 'cloud' && isSidebarOpen && (
+                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-auto"></div>
+               )}
+             </button>
+
              <div className="h-px bg-slate-800 my-2"></div>
 
              <button
@@ -251,8 +439,74 @@ export default function App() {
                 <TeamsTab />
              </div>
           )}
+          {activeTab === 'cloud' && (
+             <div className="h-full p-4 lg:p-6">
+                <CloudSyncTab />
+             </div>
+          )}
         </div>
       </main>
+
+      {/* Real-time Incoming Dispatch Modal Alert */}
+      {incomingDispatch && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in transition-all">
+          <div className="bg-white rounded-xl shadow-2xl border border-indigo-100 max-w-sm w-full overflow-hidden animate-in zoom-in-95">
+            <div className="bg-indigo-600 p-4 text-white flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-full animate-bounce">
+                <Bell className="w-6 h-6 text-indigo-100" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-sm tracking-wide">LỆNH XUẤT KHO MỚI!</h3>
+                <p className="text-[10px] text-indigo-200/90 font-medium font-mono">Tải tức thời qua Đám Mây</p>
+              </div>
+              <button 
+                onClick={() => setIncomingDispatch(null)}
+                className="p-1 rounded-full text-indigo-200 hover:bg-indigo-700 hover:text-white transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4 text-xs text-slate-600">
+              <div className="space-y-2.5 p-3.5 bg-indigo-50/40 border border-indigo-100 rounded-lg">
+                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Mã Hàng:</span>
+                  <span className="font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-100 text-[11px] font-mono">{incomingDispatch.maHang}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Planners:</span>
+                  <span className="font-bold text-slate-700">{incomingDispatch.createdBy}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Giờ nhận:</span>
+                  <span className="font-mono text-slate-500">{new Date(incomingDispatch.createdAt).toLocaleTimeString('vi-VN')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Mẫu mã:</span>
+                  <span className="font-semibold text-slate-700 truncate max-w-[180px]">{incomingDispatch.models?.join(', ')}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIncomingDispatch(null)}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  Bỏ qua
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAcceptIncomingDispatch}
+                  className="flex-[2] py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  Mở & In Lệnh Xuất
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

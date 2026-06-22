@@ -1,6 +1,8 @@
 {
-  "name": "Lệnh Cấp Phát",
-  "description": "Hoạch định nhu cầu vật tư, tính toán định mức phụ liệu và quản lý tồn kho đồng bộ thông minh.",
+  "name": "Hệ thống Quản lý Kho & Đồng bộ Lệnh cấp phát",
+  "description": "Web App đồng bộ tồn kho thực tế từ ERP thông qua Extension, hoạch định tồn vật tư (MRP) và truyền lệnh xuất kho từ xa thông qua đám mây Google Firebase.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
