@@ -93,13 +93,17 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
           setInventoryData(changes.scrapedInventoryData.newValue || []);
         }
       };
-      chrome.storage.onChanged.addListener(handleStorageChange);
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener(handleStorageChange);
+      }
       
       const handleSync = () => scrapeInventory();
       document.addEventListener('SYNC_INVENTORY', handleSync);
 
       return () => {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+          chrome.storage.onChanged.removeListener(handleStorageChange);
+        }
         document.removeEventListener('SYNC_INVENTORY', handleSync);
       };
     } else {
@@ -464,7 +468,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
           if (results && results[0] && results[0].result) {
             const dataResult = results[0].result;
             setInventoryData(dataResult);
-            if (chrome.storage && chrome.storage.local) {
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
               chrome.storage.local.set({ 
                 scrapedInventoryData: dataResult,
                 lastSyncTime: new Date().toISOString()
@@ -979,7 +983,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                             .finally(() => setSyncingCloud(false));
                     }
 
-                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && chrome.runtime && chrome.tabs) {
                         chrome.storage.local.set({
                             dispatchData,
                             detailedNeedsData,

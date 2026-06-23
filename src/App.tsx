@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { LayoutDashboard, History, FileSpreadsheet, Settings, Bell, Search, UserCircle, Menu, Package2, Layers, Users, Cloud, RefreshCw, XCircle } from 'lucide-react';
+import { LayoutDashboard, History, FileSpreadsheet, Settings, Bell, Search, UserCircle, Menu, Package2, Layers, Users, Cloud, RefreshCw, XCircle, BarChart3 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { BomManagement, BomRow } from './components/BomManagement';
 import { PlanningTab } from './components/PlanningTab';
@@ -11,6 +11,7 @@ import { InventoryTab } from './components/InventoryTab';
 import { TeamsTab } from './components/TeamsTab';
 import { HistoryTab } from './components/HistoryTab';
 import { CloudSyncTab } from './components/CloudSyncTab';
+import { DashboardTab } from './components/DashboardTab';
 import { listenToRemoteDispatches, updateDispatchStatus, RemoteDispatch, syncBomToCloud, getAllBomsFromCloud } from './lib/firebase';
 
 export default function App() {
@@ -282,6 +283,22 @@ export default function App() {
               )}
             </button>
 
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'dashboard'
+                  ? 'bg-indigo-600/10 text-indigo-400'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              } ${!isSidebarOpen && 'justify-center'}`}
+              title="Dashboard"
+            >
+              <BarChart3 className="w-5 h-5 shrink-0" />
+              {isSidebarOpen && <span className="truncate">Thống kê (Báo cáo)</span>}
+              {activeTab === 'dashboard' && isSidebarOpen && (
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 ml-auto"></div>
+              )}
+            </button>
+
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('bom')}
@@ -316,21 +333,23 @@ export default function App() {
                )}
              </button>
 
-            <button
-               onClick={() => setActiveTab('cloud')}
-               className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                 activeTab === 'cloud'
-                   ? 'bg-blue-600/10 text-blue-400'
-                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-               } ${!isSidebarOpen && 'justify-center'}`}
-               title="Đồng bộ Đám mây"
-             >
-               <Cloud className="w-5 h-5 shrink-0 text-blue-400" />
-               {isSidebarOpen && <span className="truncate">Đồng bộ Đám mây</span>}
-               {activeTab === 'cloud' && isSidebarOpen && (
-                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-auto"></div>
-               )}
-             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('cloud')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'cloud'
+                    ? 'bg-blue-600/10 text-blue-400'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                } ${!isSidebarOpen && 'justify-center'}`}
+                title="Đồng bộ Đám mây"
+              >
+                <Cloud className="w-5 h-5 shrink-0 text-blue-400" />
+                {isSidebarOpen && <span className="truncate">Đồng bộ Đám mây</span>}
+                {activeTab === 'cloud' && isSidebarOpen && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-auto"></div>
+                )}
+              </button>
+            )}
 
              <div className="h-px bg-slate-800 my-2"></div>
 
@@ -359,43 +378,51 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 shrink-0 z-10">
-          <div className="flex items-center gap-4">
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-10">
+          <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center text-sm font-medium text-slate-600 px-2 py-1 bg-slate-100 rounded-md">
-              <span className="text-slate-400 mr-2">/</span>
+            <div className="flex items-center text-sm font-semibold text-slate-700">
               {activeTab === 'planning' && <span>Tính nhu cầu phụ liệu (MRP)</span>}
               {activeTab === 'inventory' && <span>Tồn kho thực tế (ERP)</span>}
               {activeTab === 'teams' && <span>Cấu hình Tổ & Đợt sản xuất</span>}
               {activeTab === 'history' && <span>Lịch sử tra cứu</span>}
               {activeTab === 'bom' && <span>Cơ sở dữ liệu Định mức (BOM)</span>}
+              {activeTab === 'cloud' && <span>Đồng bộ máy trạm</span>}
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Tìm kiếm mã hàng..." 
-                className="pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-sm outline-none focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all w-64"
-              />
-            </div>
-            <div className="w-px h-6 bg-slate-200 mx-2 hidden sm:block"></div>
-            <button className="p-1.5 rounded-full text-slate-500 hover:bg-slate-100 transition-colors relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
-            </button>
+          <div className="flex items-center gap-2">
+            {activeTab === 'inventory' && (
+              <div className="flex items-center gap-2 pl-3 pr-1 py-1">
+                <div className="text-right hidden sm:block">
+                  <p className="text-[10px] text-slate-400 font-medium leading-[1.1]">Đồng bộ mới nhất</p>
+                  <p className="text-[11px] font-semibold text-slate-600 font-mono" id="inventory-sync-time">
+                    ---
+                  </p>
+                </div>
+                <button 
+                  onClick={() => document.dispatchEvent(new CustomEvent('REQUEST_INVENTORY_RELOAD'))}
+                  className="flex items-center justify-center gap-1.5 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium rounded text-xs border border-indigo-100 transition-all cursor-pointer"
+                  title="Tải lại tồn kho"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" id="inventory-reload-icon" />
+                  <span className="hidden leading-none sm:inline">Tải lại</span>
+                </button>
+              </div>
+            )}
+            
+            <div className="w-px h-5 bg-slate-200 mx-1 hidden sm:block"></div>
+
             <button 
               onClick={() => {
                 if (isAdmin) {
                   setIsAdmin(false);
-                  if (activeTab === 'bom') {
+                  if (activeTab === 'bom' || activeTab === 'cloud') {
                     setActiveTab('planning');
                   }
                 } else {
@@ -404,13 +431,12 @@ export default function App() {
                   else if (p !== null) alert("Sai mật khẩu!");
                 }
               }}
-              className={`flex items-center gap-2 pl-2 rounded-lg p-1 transition-colors ${isAdmin ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'hover:bg-slate-50'}`}
+              className={`flex items-center gap-2 pl-2 rounded-lg p-1 transition-colors ${isAdmin ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'hover:bg-slate-50 border border-transparent'}`}
               title={isAdmin ? "Đang ở quyền Admin" : "Nhấp để đăng nhập Admin"}
             >
-              <UserCircle className={`w-8 h-8 ${isAdmin ? 'text-amber-600' : 'text-slate-400'}`} />
-              <div className="hidden sm:block text-left">
-                <p className={`text-xs font-semibold leading-tight ${isAdmin ? 'text-amber-700' : 'text-slate-700'}`}>{isAdmin ? 'Admin User' : 'Nhân viên kho'}</p>
-                <p className={`text-[10px] leading-tight ${isAdmin ? 'text-amber-600/80' : 'text-slate-500'}`}>{isAdmin ? 'Quản trị viên' : 'Warehouse Dept'}</p>
+              <UserCircle className={`w-7 h-7 ${isAdmin ? 'text-amber-600' : 'text-slate-400'}`} />
+              <div className="hidden sm:block text-left pr-2">
+                <p className={`text-xs font-semibold leading-tight ${isAdmin ? 'text-amber-700' : 'text-slate-700'}`}>{isAdmin ? 'Admin' : 'Nhân viên kho'}</p>
               </div>
             </button>
           </div>
@@ -429,6 +455,11 @@ export default function App() {
                 <HistoryTab />
              </div>
           )}
+          {activeTab === 'dashboard' && (
+             <div className="h-full">
+                <DashboardTab />
+             </div>
+          )}
           {activeTab === 'bom' && (
              <div className="h-full p-4 lg:p-6">
                 <BomManagement bomData={bomData} onSaveBom={handleSaveBom} isAdmin={isAdmin} />
@@ -439,7 +470,7 @@ export default function App() {
                 <TeamsTab />
              </div>
           )}
-          {activeTab === 'cloud' && (
+          {activeTab === 'cloud' && isAdmin && (
              <div className="h-full p-4 lg:p-6">
                 <CloudSyncTab />
              </div>

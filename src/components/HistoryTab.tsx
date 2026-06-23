@@ -26,7 +26,7 @@ export function HistoryTab() {
   };
 
   const handleOpen = (record: any) => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && chrome.runtime && chrome.tabs) {
       chrome.storage.local.set({
         dispatchData: record.dispatchData,
         detailedNeedsData: record.detailedNeedsData,

@@ -107,6 +107,7 @@ export function InventoryTab() {
       loadSyncedData();
     };
     document.addEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+    document.addEventListener('REQUEST_INVENTORY_RELOAD', loadSyncedData);
 
     // Lắng nghe sự kiện storage thay đổi từ content script hoặc background
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
@@ -119,12 +120,29 @@ export function InventoryTab() {
       return () => {
         chrome.storage.onChanged.removeListener(handleStorageChange);
         document.removeEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+        document.removeEventListener('REQUEST_INVENTORY_RELOAD', loadSyncedData);
       };
     }
     return () => {
       document.removeEventListener('CLOUD_CONFIG_UPDATED', onCloudConfigChange);
+      document.removeEventListener('REQUEST_INVENTORY_RELOAD', loadSyncedData);
     };
   }, []);
+
+  useEffect(() => {
+    const timeEl = document.getElementById('inventory-sync-time');
+    if (timeEl) {
+      timeEl.innerText = lastSync ? new Date(lastSync).toLocaleString('vi-VN') : '---';
+    }
+  }, [lastSync]);
+
+  useEffect(() => {
+    const iconEl = document.getElementById('inventory-reload-icon');
+    if (iconEl) {
+      if (isRefreshing) iconEl.classList.add('animate-spin');
+      else iconEl.classList.remove('animate-spin');
+    }
+  }, [isRefreshing]);
 
   const uniqueMaHangs = useMemo(() => {
     const list = items.map(item => item['MÃ HÀNG'] || '').filter(Boolean);
@@ -172,96 +190,75 @@ export function InventoryTab() {
 
   return (
     <div className="flex flex-col gap-6 h-full">
-      {/* Banner / Header */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center text-blue-600 shadow-xs shrink-0">
-            <Database className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              {nodeMode === 'remote' ? `Tồn kho từ xa: ${remoteWarehouseName || 'Đang kết nối...'}` : 'Tồn kho cục bộ'}
-              <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-xs font-semibold items-center gap-1 border ${
-                nodeMode === 'remote' 
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${nodeMode === 'remote' ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
-                {nodeMode === 'remote' ? 'Bộ điều khiển Cloud' : 'Máy trạm kho hoạt động'}
-              </span>
-            </h2>
-            <p className="text-sm text-slate-500 mt-0.5 leading-relaxed">
-              {nodeMode === 'remote' 
-                ? `Đồng bộ trực tuyến thời gian thực từ mã máy trạm: ${remoteWarehouseId || 'Trống'}`
-                : 'Đang hoạt động tại máy trạm kho. Đồng bộ tồn từ ERP tự động lên Đám Mây cho phép điều khiển từ xa.'
-              }
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
-          <div className="text-right hidden sm:block">
-            <p className="text-xs text-slate-400 font-medium">Đồng bộ mới nhất lúc</p>
-            <p className="text-sm font-semibold text-slate-700 font-mono">
-              {lastSync ? new Date(lastSync).toLocaleString('vi-VN') : '---'}
-            </p>
-          </div>
-          <button 
-            onClick={loadSyncedData} 
-            disabled={isRefreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm border border-slate-200 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Tải lại
-          </button>
-        </div>
-      </div>
-
-
-
       {/* Main Table & Filters */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[400px]">
         {/* Filters bar */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input 
-              type="text" 
-              placeholder="Tìm kiếm theo mã hàng, loại vật tư, màu sắc, PO hoặc khoang..." 
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium"
-            />
+        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input 
+                type="text" 
+                placeholder="Tìm kiếm theo mã hàng, loại vật tư, màu sắc, PO hoặc khoang..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium"
+              />
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto">
+              <div className="relative shrink-0">
+                <select 
+                  value={filterMaHang}
+                  onChange={e => setFilterMaHang(e.target.value)}
+                  className="pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 appearance-none font-medium cursor-pointer"
+                >
+                  <option value="ALL">Mã Hàng (Style): Tất cả</option>
+                  {uniqueMaHangs.filter(v => v !== 'ALL').map(mh => (
+                    <option key={mh} value={mh}>{mh}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+
+              <div className="relative shrink-0">
+                <select 
+                  value={filterType}
+                  onChange={e => setFilterLoai(e.target.value)}
+                  className="pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 appearance-none font-medium cursor-pointer"
+                >
+                  <option value="ALL">Loại vật tư: Tất cả</option>
+                  {uniqueTypes.filter(v => v !== 'ALL').map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
           </div>
-
-          <div className="flex gap-2">
-            <div className="relative shrink-0">
-              <select 
-                value={filterMaHang}
-                onChange={e => setFilterMaHang(e.target.value)}
-                className="pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 appearance-none font-medium cursor-pointer"
-              >
-                <option value="ALL">Mã Hàng (Style): Tất cả</option>
-                {uniqueMaHangs.filter(v => v !== 'ALL').map(mh => (
-                  <option key={mh} value={mh}>{mh}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-
-            <div className="relative shrink-0">
-              <select 
-                value={filterType}
-                onChange={e => setFilterLoai(e.target.value)}
-                className="pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-sm bg-white outline-none focus:border-blue-500 appearance-none font-medium cursor-pointer"
-              >
-                <option value="ALL">Loại vật tư: Tất cả</option>
-                {uniqueTypes.filter(v => v !== 'ALL').map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
+          
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">Bộ lọc nhanh:</span>
+            <button
+               onClick={() => setSearchTerm(searchTerm.toLowerCase() === 'dây kéo' ? '' : 'dây kéo')}
+               className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors shrink-0 ${
+                 searchTerm.toLowerCase() === 'dây kéo'
+                   ? 'bg-blue-50 border-blue-200 text-blue-700'
+                   : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+               }`}
+             >
+               Chi tiết Dây kéo (Size, P.O)
+            </button>
+            <button
+               onClick={() => {
+                   setSearchTerm('');
+                   setFilterMaHang('ALL');
+                   setFilterLoai('ALL');
+               }}
+               className="px-3 py-1.5 rounded-full text-xs font-medium border bg-white border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors shrink-0"
+             >
+               Xóa lọc
+            </button>
           </div>
         </div>
 

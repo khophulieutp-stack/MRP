@@ -199,6 +199,26 @@ export function listenToRemoteDispatches(deviceId: string, callback: (dispatches
 }
 
 /**
+ * Fetch all remote dispatches from the cloud (for dashboard/history purposes)
+ */
+export async function getAllDispatchesFromCloud(): Promise<RemoteDispatch[]> {
+  try {
+    const colRef = collection(db, 'dispatches');
+    const snapshot = await getDocs(colRef);
+    const list: RemoteDispatch[] = [];
+    snapshot.forEach(doc => {
+      list.push(doc.data() as RemoteDispatch);
+    });
+    // Sort descending by createdAt
+    list.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  } catch (err) {
+    console.error("Error fetching all dispatches:", err);
+    return [];
+  }
+}
+
+/**
  * Update the status of a remote dispatch
  */
 export async function updateDispatchStatus(id: string, status: 'Pending' | 'Received' | 'Completed'): Promise<void> {
