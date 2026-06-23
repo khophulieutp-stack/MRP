@@ -12,10 +12,10 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
         return text.replace(/[\s\u00A0]+/g, ' ').trim();
     }
 
-    function getCellFullText(cell, isNumeric = false) {
-        if (!cell) return "";
+    function getCellFullText(cell, isNumeric = false, headerName = "") {
+        if (!cell || typeof cell.querySelector !== 'function' || typeof cell.getAttribute !== 'function') return "";
 
-        // 1. Kiểm tra nếu có thẻ input, textarea, select (có thể hiển thị dạng form nhập liệu)
+        // 1. Kiểm tra nếu có thẻ input, textarea, select
         const formEl = cell.querySelector("input, textarea, select");
         if (formEl) {
             const val = formEl.value;
@@ -24,90 +24,114 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
             }
         }
 
-        // ĐỐI VỚI CÁC CỘT SỐ LƯỢNG (SL NHẬP, SL XUẤT, TỒN), TUYỆT ĐỐI KHÔNG LẤY TỪ THUỘC TÍNH (VÌ ICON CÓ TITLE="Sửa PO" SẼ LÀM SAI SỐ)
+        // ĐỐI VỚI CÁC CỘT SỐ LƯỢNG (SL NHẬP, SL XUẤT, TỒN), TUYỆT ĐỐI KHÔNG LẤY TỪ THUỘC TÍNH
         if (isNumeric) {
             return normalizeText(cell.textContent);
         }
 
-        // 2. Tìm thẻ link 'a'. URL thường chứa tham số gốc không bị rút gọn.
-        const link = cell.querySelector("a");
-        if (link && link.href) {
-            try {
-                // Đảm bảo parse URL chính xác và thay thế tất cả &amp; bằng & trước khi phân tích
-                let hrefAttr = link.getAttribute("href") || "";
-                hrefAttr = hrefAttr.replace(/&amp;/gi, "&");
-                
-                let url;
-                if (hrefAttr.startsWith("http://") || hrefAttr.startsWith("https://")) {
-                    url = new URL(hrefAttr);
-                } else {
-                    url = new URL(hrefAttr, window.location.href || 'http://localhost');
-                }
-
-                // Kiểm tra các tham số truy vấn phổ biến hoặc bất kỳ tham số nào có giá trị dài/không bị cắt
-                const searchParams = url.searchParams;
-                // Danh sách tham số ưu tiên
-                const priorityParams = ['loaipl', 'loai', 'name', 'ten', 'loai_pl', 'loai_phu_lieu', 'ma_phu_lieu', 'value'];
-                for (const p of priorityParams) {
-                    // Thử tìm theo tham số chuẩn, hoặc tham số có tiền tố "amp;" trong trường hợp encode bị lỗi
-                    let val = searchParams.get(p);
-                    if (!val) {
-                        val = searchParams.get('amp;' + p);
-                    }
-                    if (val && val.trim()) {
-                        return normalizeText(val);
-                    }
-                }
-
-                // Nếu không có tham số ưu tiên, duyệt qua tất cả tham số để tìm giá trị dài nhất
-                let longestParamVal = "";
-                for (const [key, val] of searchParams.entries()) {
-                    // Loại bỏ tiền tố "amp;" khỏi key trong quá trình so sánh nếu có
-                    if (val && val.trim() && val.length > longestParamVal.length) {
-                        longestParamVal = val;
-                    }
-                }
-                if (longestParamVal && longestParamVal.length > 5) {
-                    return normalizeText(longestParamVal);
-                }
-            } catch (e) {
-                // Bỏ qua lỗi parse URL
-            }
-        }
-
-        // 3. Kiểm tra các thuộc tính chứa text đầy đủ của cell hoặc các phần tử con
-        // Các thuộc tính Tooltip hoặc Data thường chứa text nguyên bản
+        const rawText = normalizeText(cell.textContent);
+        
+        // CÁC THUỘC TÍNH CHỨA TEXT ĐẦY ĐỦ THƯỜNG ĐƯỢC DÙNG KHI CẮT CHỮ (TOOLTIP)
         const attributesToCheck = [
             "title", 
             "data-original-title", 
             "data-value", 
             "data-text", 
-            "data-name", 
-            "data-content", 
-            "alt"
+            "data-content"
         ];
 
-        // Kiểm tra trên bản thân cell
+        // Tìm xem có thuộc tính nào được đặt ở ô hay phần tử con không
+        let attrText = "";
         for (const attr of attributesToCheck) {
             const val = cell.getAttribute(attr);
             if (val && val.trim()) {
-                return normalizeText(val);
+                attrText = normalizeText(val);
+                break;
             }
         }
-
-        // Kiểm tra trên các thẻ con (span, a, div, dfn, label...)
-        const children = cell.querySelectorAll("*");
-        for (const child of children) {
-            for (const attr of attributesToCheck) {
-                const val = child.getAttribute(attr);
-                if (val && val.trim()) {
-                    return normalizeText(val);
+        if (!attrText) {
+            const children = cell.querySelectorAll("*");
+            for (const child of children) {
+                for (const attr of attributesToCheck) {
+                    const val = child.getAttribute(attr);
+                    if (val && val.trim()) {
+                        attrText = normalizeText(val);
+                        break;
+                    }
                 }
+                if (attrText) break;
             }
         }
 
-        // 4. Fallback lấy textContent thông thường
-        return normalizeText(cell.textContent);
+        // Ưu tiên thuộc tính tooltip/data (chứa dữ liệu gốc) hơn là textContent (có thể bị cắt, hoặc chứa ký hiệu lỗi )
+        if (attrText && attrText !== "...") {
+            const cleanRawText = rawText.replace(/[\.…]/g, "").trim();
+            // Đảm bảo tooltip không phải là mấy câu chung chung
+            if (attrText.toLowerCase() !== "xem chi tiết" && attrText.toLowerCase() !== "chi tiết") {
+                 // Nếu có tooltip chứa dữ liệu nguyên thủy, chúng ta luôn dùng nó
+                 return attrText;
+            }
+        }
+
+        // Kiểm tra thông tin đầy đủ bị ẩn trong URL query parameters của các thẻ <a> (VD: ERP thường để name gốc trong param loaipl=...)
+        const aTag = cell.querySelector("a[href]");
+        if (aTag && headerName) {
+            try {
+                const tempUrl = new URL(aTag.href, window.location.href);
+                let matchedParamText = null;
+
+                // Basic mapping header -> param name
+                const hdr = headerName.toUpperCase();
+                let paramKeyToLookFor = "";
+
+                if (hdr.includes("LOẠI")) paramKeyToLookFor = "loaipl";
+                else if (hdr.includes("MÃ HÀNG")) paramKeyToLookFor = "mahang";
+                else if (hdr === "MÃ P.O" || hdr === "PO") paramKeyToLookFor = "popl";
+                else if (hdr === "MÀU SẮC" || hdr === "MÀU") paramKeyToLookFor = "maupl";
+                else if (hdr.includes("SIZE")) paramKeyToLookFor = "sizepl"; // can also be thongso
+                else if (hdr.includes("KHOANG") || hdr.includes("VỊ TRÍ")) paramKeyToLookFor = "vitrikhoang";
+                else if (hdr.includes("MODEL")) paramKeyToLookFor = "model";
+                else if (hdr.includes("ITEM")) paramKeyToLookFor = "itempl";
+
+                if (paramKeyToLookFor && tempUrl.searchParams.has(paramKeyToLookFor)) {
+                    const mappedVal = tempUrl.searchParams.get(paramKeyToLookFor);
+                    if (mappedVal && mappedVal.trim()) {
+                        matchedParamText = mappedVal.trim();
+                    }
+                } 
+                
+                // Fallback for thongso
+                if (!matchedParamText && hdr.includes("SIZE") && tempUrl.searchParams.has("thongso")) {
+                    const mappedVal = tempUrl.searchParams.get("thongso");
+                    if (mappedVal && mappedVal.trim()) {
+                        matchedParamText = mappedVal.trim();
+                    }
+                }
+
+                if (matchedParamText) {
+                    return normalizeText(matchedParamText);
+                }
+
+                // If explicit mapping failed, use the fallback logic:
+                const cleanRawTextForParams = rawText.replace(/[\.…]/g, "").trim().toUpperCase();
+                tempUrl.searchParams.forEach((val, key) => {
+                    const decodedVal = val.trim();
+                    const upperVal = decodedVal.toUpperCase();
+                    // Kiểm tra param phải chứa text hiện tại nhưng đầy đủ dài hơn
+                    if (cleanRawTextForParams.length >= 2 && upperVal.length > cleanRawTextForParams.length && upperVal.startsWith(cleanRawTextForParams)) {
+                        matchedParamText = decodedVal;
+                    }
+                });
+                
+                if (matchedParamText) {
+                    return normalizeText(matchedParamText);
+                }
+            } catch (err) {
+                // Ignore URL parsing errors
+            }
+        }
+
+        return rawText;
     }
 
     // Hàm cào dữ liệu từ bảng
@@ -165,7 +189,7 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
 
                         let cellText;
                         const isNumeric = header === 'SL NHẬP' || header === 'SL XUẤT' || header === 'TỒN';
-                        cellText = getCellFullText(cells[index], isNumeric);
+                        cellText = getCellFullText(cells[index], isNumeric, header);
 
                         // Định dạng số cho SL NHẬP, SL XUẤT, TỒN, còn lại chuyển in hoa chuyên nghiệp
                         if (isNumeric) {
@@ -343,38 +367,44 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
     }
 
     // Vẫn lắng nghe message thủ công từ extension đề phòng
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.action === "scrapeData") {
-            try {
-                const newData = scrapeUniversalData();
-                if (!newData || newData.length === 0) {
-                    sendResponse({ status: "success", data: [] });
-                    return true;
-                }
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+            if (request.action === "scrapeData") {
+                try {
+                    const newData = scrapeUniversalData();
+                    if (!newData || newData.length === 0) {
+                        sendResponse({ status: "success", data: [] });
+                        return true;
+                    }
 
-                chrome.storage.local.get(['scrapedInventoryData'], (result) => {
-                    const existingData = result.scrapedInventoryData || [];
-                    const mergedList = mergeAndAggregateLists(existingData, newData);
-                    
-                    const hasChanges = JSON.stringify(existingData) !== JSON.stringify(mergedList);
+                    if (chrome.storage && chrome.storage.local) {
+                        chrome.storage.local.get(['scrapedInventoryData'], (result) => {
+                            const existingData = result.scrapedInventoryData || [];
+                            const mergedList = mergeAndAggregateLists(existingData, newData);
+                            
+                            const hasChanges = JSON.stringify(existingData) !== JSON.stringify(mergedList);
 
-                    if (hasChanges) {
-                        chrome.storage.local.set({ 
-                            scrapedInventoryData: mergedList,
-                            lastSyncTime: new Date().toISOString()
-                        }, () => {
-                            sendResponse({ status: "success", data: mergedList });
+                            if (hasChanges) {
+                                chrome.storage.local.set({ 
+                                    scrapedInventoryData: mergedList,
+                                    lastSyncTime: new Date().toISOString()
+                                }, () => {
+                                    sendResponse({ status: "success", data: mergedList });
+                                });
+                            } else {
+                                sendResponse({ status: "success", data: existingData });
+                            }
                         });
                     } else {
-                        sendResponse({ status: "success", data: existingData });
+                        sendResponse({ status: "success", data: [] });
                     }
-                });
-            } catch (error) {
-                console.error("Lỗi khi cào dữ liệu:", error);
-                sendResponse({ status: "error", message: error.message });
+                } catch (error) {
+                    console.error("Lỗi khi cào dữ liệu:", error);
+                    sendResponse({ status: "error", message: error.message });
+                }
+                return true;
             }
-            return true;
-        }
-        return true; 
-    });
+            return true; 
+        });
+    }
 }

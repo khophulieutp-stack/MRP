@@ -21,7 +21,7 @@ function initializePage() {
     }
 
     setTimeout(() => {
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.storage && chrome.storage.local) {
             chrome.storage.local.get(['dispatchData', 'detailedNeedsData', 'khsxData', 'fifoSuggestions', 'dispatchInfo'], (result) => {
                 if (chrome.runtime.lastError) {
                     console.error("Lỗi khi đọc dữ liệu:", chrome.runtime.lastError);
