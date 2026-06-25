@@ -378,45 +378,48 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-10">
+        <header className="h-14 bg-white/90 backdrop-blur-sm border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-10 sticky top-0">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
+              className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center text-sm font-semibold text-slate-700">
-              {activeTab === 'planning' && <span>Tính nhu cầu phụ liệu (MRP)</span>}
-              {activeTab === 'inventory' && <span>Tồn kho thực tế (ERP)</span>}
-              {activeTab === 'teams' && <span>Cấu hình Tổ & Đợt sản xuất</span>}
-              {activeTab === 'history' && <span>Lịch sử tra cứu</span>}
-              {activeTab === 'bom' && <span>Cơ sở dữ liệu Định mức (BOM)</span>}
-              {activeTab === 'cloud' && <span>Đồng bộ máy trạm</span>}
+            <div className="flex items-center">
+              <h2 className="text-[15px] font-bold text-slate-800 tracking-tight">
+                {activeTab === 'planning' && 'Tính nhu cầu phụ liệu (MRP)'}
+                {activeTab === 'inventory' && 'Tồn kho thực tế (ERP)'}
+                {activeTab === 'teams' && 'Cấu hình Tổ & Đợt sản xuất'}
+                {activeTab === 'history' && 'Lịch sử tra cứu'}
+                {activeTab === 'bom' && 'Cơ sở dữ liệu Định mức (BOM)'}
+                {activeTab === 'cloud' && 'Đồng bộ máy trạm (Cloud)'}
+                {activeTab === 'dashboard' && 'Thống kê Tổng quát'}
+              </h2>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             {activeTab === 'inventory' && (
-              <div className="flex items-center gap-2 pl-3 pr-1 py-1">
-                <div className="text-right hidden sm:block">
-                  <p className="text-[10px] text-slate-400 font-medium leading-[1.1]">Đồng bộ mới nhất</p>
-                  <p className="text-[11px] font-semibold text-slate-600 font-mono" id="inventory-sync-time">
+              <div className="flex items-center gap-2 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="text-right hidden md:block px-2">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Cập nhật lần cuối</p>
+                  <p className="text-[11px] font-bold text-slate-700 font-mono leading-none" id="inventory-sync-time">
                     ---
                   </p>
                 </div>
                 <button 
                   onClick={() => document.dispatchEvent(new CustomEvent('REQUEST_INVENTORY_RELOAD'))}
-                  className="flex items-center justify-center gap-1.5 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium rounded text-xs border border-indigo-100 transition-all cursor-pointer"
+                  className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-600 font-semibold rounded-md border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer shadow-xs"
                   title="Tải lại tồn kho"
                 >
                   <RefreshCw className="w-3.5 h-3.5" id="inventory-reload-icon" />
-                  <span className="hidden leading-none sm:inline">Tải lại</span>
+                  <span className="text-xs hidden sm:inline">Làm mới</span>
                 </button>
               </div>
             )}
             
-            <div className="w-px h-5 bg-slate-200 mx-1 hidden sm:block"></div>
+            <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1"></div>
 
             <button 
               onClick={() => {
@@ -431,12 +434,12 @@ export default function App() {
                   else if (p !== null) alert("Sai mật khẩu!");
                 }
               }}
-              className={`flex items-center gap-2 pl-2 rounded-lg p-1 transition-colors ${isAdmin ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'hover:bg-slate-50 border border-transparent'}`}
+              className={`flex items-center gap-2 pl-2 rounded-full p-1 transition-all ${isAdmin ? 'bg-amber-50 border border-amber-200 pr-3' : 'hover:bg-slate-100 border border-transparent'}`}
               title={isAdmin ? "Đang ở quyền Admin" : "Nhấp để đăng nhập Admin"}
             >
-              <UserCircle className={`w-7 h-7 ${isAdmin ? 'text-amber-600' : 'text-slate-400'}`} />
-              <div className="hidden sm:block text-left pr-2">
-                <p className={`text-xs font-semibold leading-tight ${isAdmin ? 'text-amber-700' : 'text-slate-700'}`}>{isAdmin ? 'Admin' : 'Nhân viên kho'}</p>
+              <UserCircle className={`w-7 h-7 transition-colors ${isAdmin ? 'text-amber-500' : 'text-slate-400'}`} />
+              <div className={`hidden sm:block text-left text-xs font-bold leading-none ${isAdmin ? 'text-amber-700' : 'text-slate-600'}`}>
+                {isAdmin ? 'Quản trị viên' : 'Nhân viên'}
               </div>
             </button>
           </div>
@@ -445,7 +448,7 @@ export default function App() {
         {/* Content Wrapper */}
         <div className="flex-1 overflow-auto bg-slate-50/50">
           {activeTab === 'planning' && (
-            <div className="h-full p-0"><PlanningTab bomData={bomData} /></div>
+            <div className="h-full p-0"><PlanningTab bomData={bomData} isAdmin={isAdmin} /></div>
           )}
           {activeTab === 'inventory' && (
             <div className="h-full p-4 lg:p-6"><InventoryTab /></div>

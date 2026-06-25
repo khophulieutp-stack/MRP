@@ -206,50 +206,93 @@ function renderDispatchTable(data, needsMap) {
 
 function renderShortageTable(fifoSuggestions, detailedNeedsData) {
     const container = document.getElementById('shortage-section-container');
-    if (!container || fifoSuggestions.size === 0) return;
+    if (!container) return;
 
+    // Tính toán trực tiếp danh sách thiếu hụt bằng cách so sánh tổng nhu cầu trong detailedNeedsData và lượng xuất thực tế trong currentDispatchData
+    if (!detailedNeedsData || !detailedNeedsData.needs || detailedNeedsData.needs.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    // 1. Nhóm nhu cầu từ BOM cần thiết theo needKey
+    const needsMap = new Map();
+    detailedNeedsData.needs.forEach(need => {
+        const loai = String(need.loai || '').trim();
+        const sizeVT = String(need.sizeVT || '').trim();
+        const mau = String(need.mau || '').trim();
+        const key = `${loai.toLowerCase()}___${sizeVT.toLowerCase()}___${mau.toLowerCase()}`;
+        
+        if (!needsMap.has(key)) {
+            needsMap.set(key, {
+                loai,
+                sizeVT,
+                mau,
+                totalNeed: 0,
+                models: new Set()
+            });
+        }
+        const info = needsMap.get(key);
+        info.totalNeed += (need.total || 0);
+        if (need.model) info.models.add(need.model);
+    });
+
+    // 2. Nhóm lượng cấp phát xuất thực tế từ currentDispatchData
+    const exportMap = new Map();
+    if (currentDispatchData && currentDispatchData.length > 0) {
+        currentDispatchData.forEach(item => {
+            const loai = String(item['LOẠI'] || '').trim();
+            const sizeVT = String(item['TS / SIZE'] || '').trim();
+            const mau = String(item['MÀU'] || '').trim();
+            const key = `${loai.toLowerCase()}___${sizeVT.toLowerCase()}___${mau.toLowerCase()}`;
+            
+            exportMap.set(key, (exportMap.get(key) || 0) + (item.xuatQty || 0));
+        });
+    }
+
+    // 3. Xây dựng danh sách thiếu hụt thực tế
     const shortageList = [];
-    for (const [key, group] of fifoSuggestions.entries()) {
-        if (group.remainingAfterSuggestion > 0.1) {
-            shortageList.push(group);
+    for (const [key, needInfo] of needsMap.entries()) {
+        const totalExported = exportMap.get(key) || 0;
+        const shortageQty = needInfo.totalNeed - totalExported;
+        
+        if (shortageQty > 0.1) {
+            shortageList.push({
+                needInfo: {
+                    loai: needInfo.loai,
+                    sizeVT: needInfo.sizeVT,
+                    mau: needInfo.mau
+                },
+                totalNeed: needInfo.totalNeed,
+                totalAvailable: totalExported,
+                remainingAfterSuggestion: shortageQty,
+                models: Array.from(needInfo.models).join(', ')
+            });
         }
     }
 
     if (shortageList.length === 0) {
-        container.innerHTML = `<h3>✅ TÌNH TRẠNG PHỤ LIỆU</h3> <p style="text-align: center;">🎉 Đủ phụ liệu cho kế hoạch sản xuất!</p>`;
+        container.innerHTML = `<h3>✅ TÌNH TRẠNG PHỤ LIỆU</h3> <p style="text-align: center; font-size: 11pt; padding: 10px; color: #0f766e; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;">🎉 Đủ phụ liệu cho kế hoạch sản xuất!</p>`;
         return;
     }
 
+    // Sắp xếp theo lượng thiếu hụt giảm dần
     shortageList.sort((a, b) => b.remainingAfterSuggestion - a.remainingAfterSuggestion);
 
     const tableRowsHtml = shortageList.map(item => {
-        const totalAvailable = item.totalNeed - item.remainingAfterSuggestion;
-        const isTotalShortage = totalAvailable < 0.1;
+        const isTotalShortage = item.totalAvailable < 0.1;
         const rowClass = isTotalShortage ? 'critical-shortage' : 'partial-shortage';
         const statusIcon = isTotalShortage ? '🚫' : '⚠️';
-
-        const relevantModels = new Set();
-        if (detailedNeedsData && detailedNeedsData.needs) {
-            detailedNeedsData.needs.forEach(need => {
-                const needKey = `${String(need.loai || '').trim().toLowerCase()}___${String(need.sizeVT || '').trim().toLowerCase()}___${String(need.mau || '').trim().toLowerCase()}`;
-                const itemKey = `${String(item.needInfo.loai || '').trim().toLowerCase()}___${String(item.needInfo.sizeVT || '').trim().toLowerCase()}___${String(item.needInfo.mau || '').trim().toLowerCase()}`;
-                if (needKey === itemKey) {
-                    relevantModels.add(need.model);
-                }
-            });
-        }
-        const modelsString = Array.from(relevantModels).join(', ');
 
         return `
             <tr class="${rowClass}">
                 <td>${escapeHtml(detailedNeedsData.maHang)}</td>
-                <td><strong>${escapeHtml(modelsString)}</strong></td> 
+                <td><strong>${escapeHtml(item.models)}</strong></td> 
                 <td class="align-left">${escapeHtml(item.needInfo.loai)}</td>
                 <td>${escapeHtml(item.needInfo.sizeVT)}</td>
                 <td>${escapeHtml(item.needInfo.mau)}</td>
                 <td>${item.totalNeed.toFixed(0)}</td>
-                <td>${totalAvailable.toFixed(0)}</td>
-                <td><strong>${item.remainingAfterSuggestion.toFixed(0)}</strong></td>
+                <td>${item.totalAvailable.toFixed(0)}</td>
+                <td style="background-color: #fef08a; font-weight: bold; color: #b45309;"><strong>${item.remainingAfterSuggestion.toFixed(0)}</strong></td>
                 <td>${statusIcon} ${isTotalShortage ? 'Thiếu hoàn toàn' : 'Thiếu một phần'}</td>
             </tr>
         `;
@@ -258,7 +301,6 @@ function renderShortageTable(fifoSuggestions, detailedNeedsData) {
     container.innerHTML = `
         <h3>⚠️ DANH SÁCH PHỤ LIỆU THIẾU HỤT</h3>
         <div class="table-wrapper">
-         
             <table class="data-table shortage-table">
                 <thead>
                     <tr>
@@ -415,12 +457,61 @@ function exportToExcel() {
 
     html += `</table>`;
 
-    // Shortage block
+    // Tính toán động danh sách thiếu hụt cho Excel xuất kho
     const shortageList = [];
-    if (currentFifoSuggestions && currentFifoSuggestions.size > 0) {
-        for (const [key, group] of currentFifoSuggestions.entries()) {
-            if (group.remainingAfterSuggestion > 0.1) {
-                shortageList.push(group);
+    if (currentDetailedNeedsData && currentDetailedNeedsData.needs && currentDetailedNeedsData.needs.length > 0) {
+        // 1. Nhóm nhu cầu từ BOM cần thiết theo needKey
+        const needsMap = new Map();
+        currentDetailedNeedsData.needs.forEach(need => {
+            const loai = String(need.loai || '').trim();
+            const sizeVT = String(need.sizeVT || '').trim();
+            const mau = String(need.mau || '').trim();
+            const key = `${loai.toLowerCase()}___${sizeVT.toLowerCase()}___${mau.toLowerCase()}`;
+            
+            if (!needsMap.has(key)) {
+                needsMap.set(key, {
+                    loai,
+                    sizeVT,
+                    mau,
+                    totalNeed: 0,
+                    models: new Set()
+                });
+            }
+            const info = needsMap.get(key);
+            info.totalNeed += (need.total || 0);
+            if (need.model) info.models.add(need.model);
+        });
+
+        // 2. Nhóm lượng cấp phát thực xuất thực tế từ currentDispatchData
+        const exportMap = new Map();
+        if (currentDispatchData && currentDispatchData.length > 0) {
+            currentDispatchData.forEach(item => {
+                const loai = String(item['LOẠI'] || '').trim();
+                const sizeVT = String(item['TS / SIZE'] || '').trim();
+                const mau = String(item['MÀU'] || '').trim();
+                const key = `${loai.toLowerCase()}___${sizeVT.toLowerCase()}___${mau.toLowerCase()}`;
+                
+                exportMap.set(key, (exportMap.get(key) || 0) + (item.xuatQty || 0));
+            });
+        }
+
+        // 3. Xây dựng danh sách thiếu hụt thực tế
+        for (const [key, needInfo] of needsMap.entries()) {
+            const totalExported = exportMap.get(key) || 0;
+            const shortageQty = needInfo.totalNeed - totalExported;
+            
+            if (shortageQty > 0.1) {
+                shortageList.push({
+                    needInfo: {
+                        loai: needInfo.loai,
+                        sizeVT: needInfo.sizeVT,
+                        mau: needInfo.mau
+                    },
+                    totalNeed: needInfo.totalNeed,
+                    totalAvailable: totalExported,
+                    remainingAfterSuggestion: shortageQty,
+                    models: Array.from(needInfo.models).join(', ')
+                });
             }
         }
     }
@@ -446,32 +537,19 @@ function exportToExcel() {
         `;
 
         shortageList.forEach(item => {
-            const totalAvailable = item.totalNeed - item.remainingAfterSuggestion;
-            const isTotalShortage = totalAvailable < 0.1;
+            const isTotalShortage = item.totalAvailable < 0.1;
             const rowClass = isTotalShortage ? 'critical-shortage' : 'partial-shortage';
             const statusStr = isTotalShortage ? 'Thiếu hoàn toàn' : 'Thiếu một phần';
-
-            const relevantModels = new Set();
-            if (currentDetailedNeedsData && currentDetailedNeedsData.needs) {
-                currentDetailedNeedsData.needs.forEach(need => {
-                    const needKey = `${String(need.loai || '').trim().toLowerCase()}___${String(need.sizeVT || '').trim().toLowerCase()}___${String(need.mau || '').trim().toLowerCase()}`;
-                    const itemKey = `${String(item.needInfo.loai || '').trim().toLowerCase()}___${String(item.needInfo.sizeVT || '').trim().toLowerCase()}___${String(item.needInfo.mau || '').trim().toLowerCase()}`;
-                    if (needKey === itemKey) {
-                        relevantModels.add(need.model);
-                    }
-                });
-            }
-            const modelsString = Array.from(relevantModels).join(', ');
 
             html += `
             <tr class="${rowClass}">
               <td>${maHang}</td>
-              <td class="bold-value">${modelsString}</td>
+              <td class="bold-value">${item.models}</td>
               <td>${item.needInfo.loai}</td>
               <td class="text-center bold-value">${item.needInfo.sizeVT}</td>
               <td>${item.needInfo.mau}</td>
               <td class="text-right">${item.totalNeed.toFixed(0)}</td>
-              <td class="text-right">${totalAvailable.toFixed(0)}</td>
+              <td class="text-right">${item.totalAvailable.toFixed(0)}</td>
               <td class="text-right bold-value" style="color:#b91c1c;">${item.remainingAfterSuggestion.toFixed(0)}</td>
               <td class="text-center bold-value">${statusStr}</td>
             </tr>

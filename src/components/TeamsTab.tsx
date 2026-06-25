@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Users, Plus, Trash2, Edit2, Check, X, Layers, Briefcase, Calendar, Info, Search } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 interface ProductionTeam {
   id: string;
@@ -38,72 +40,59 @@ export function TeamsTab() {
   // Search filter
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load initial data
+  // default initial values logic
+  const defaultTeams: ProductionTeam[] = [
+    { id: 't1', name: 'Tổ 1', leader: 'Nguyễn Văn Hùng', membersCount: 15, notes: 'Chuyên may chính' },
+    { id: 't2', name: 'Tổ 2', leader: 'Trần Thị Mai', membersCount: 12, notes: 'Chuyên sườn ống' },
+    { id: 't3', name: 'Tổ 3', leader: 'Phạm Đức Toàn', membersCount: 18, notes: 'Chuyên hoàn thiện' },
+    { id: 't4', name: 'Tổ 4', leader: 'Lê Hoàng Minh', membersCount: 14, notes: 'Chuyên chuẩn bị' }
+  ];
+
+  const defaultBatches: ProductionBatch[] = [
+    { id: 'b1', name: 'Đợt 1', code: 'DOT-01', notes: 'Sản xuất buổi sáng' },
+    { id: 'b2', name: 'Đợt 2', code: 'DOT-02', notes: 'Sản xuất buổi chiều' },
+    { id: 'b3', name: 'Đợt 3', code: 'DOT-03', notes: 'Tăng ca buổi tối' },
+    { id: 'b4', name: 'Đợt 4', code: 'DOT-04', notes: 'Kế hoạch khẩn cấp' }
+  ];
+
+  // Load initial data from Firebase real-time
   useEffect(() => {
-    const loadTeamsAndBatches = () => {
-      const defaultTeams: ProductionTeam[] = [
-        { id: 't1', name: 'Tổ 1', leader: 'Nguyễn Văn Hùng', membersCount: 15, notes: 'Chuyên may chính' },
-        { id: 't2', name: 'Tổ 2', leader: 'Trần Thị Mai', membersCount: 12, notes: 'Chuyên sườn ống' },
-        { id: 't3', name: 'Tổ 3', leader: 'Phạm Đức Toàn', membersCount: 18, notes: 'Chuyên hoàn thiện' },
-        { id: 't4', name: 'Tổ 4', leader: 'Lê Hoàng Minh', membersCount: 14, notes: 'Chuyên chuẩn bị' }
-      ];
-
-      const defaultBatches: ProductionBatch[] = [
-        { id: 'b1', name: 'Đợt 1', code: 'DOT-01', notes: 'Sản xuất buổi sáng' },
-        { id: 'b2', name: 'Đợt 2', code: 'DOT-02', notes: 'Sản xuất buổi chiều' },
-        { id: 'b3', name: 'Đợt 3', code: 'DOT-03', notes: 'Tăng ca buổi tối' },
-        { id: 'b4', name: 'Đợt 4', code: 'DOT-04', notes: 'Kế hoạch khẩn cấp' }
-      ];
-
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['productionTeams', 'productionBatches'], (res) => {
-          if (res.productionTeams) {
-            setTeams(res.productionTeams);
-          } else {
-            setTeams(defaultTeams);
-            chrome.storage.local.set({ productionTeams: defaultTeams });
-          }
-
-          if (res.productionBatches) {
-            setBatches(res.productionBatches);
-          } else {
-            setBatches(defaultBatches);
-            chrome.storage.local.set({ productionBatches: defaultBatches });
-          }
-        });
+    const docRef = doc(db, 'warehouses', 'global_teams_config');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.productionTeams) setTeams(data.productionTeams);
+        else setTeams(defaultTeams);
+        
+        if (data.productionBatches) setBatches(data.productionBatches);
+        else setBatches(defaultBatches);
       } else {
-        const localTeams = localStorage.getItem('productionTeams');
-        const localBatches = localStorage.getItem('productionBatches');
-
-        if (localTeams) {
-          setTeams(JSON.parse(localTeams));
-        } else {
-          setTeams(defaultTeams);
-          localStorage.setItem('productionTeams', JSON.stringify(defaultTeams));
-        }
-
-        if (localBatches) {
-          setBatches(JSON.parse(localBatches));
-        } else {
-          setBatches(defaultBatches);
-          localStorage.setItem('productionBatches', JSON.stringify(defaultBatches));
-        }
+        // Init if not exist
+        setDoc(docRef, {
+            productionTeams: defaultTeams,
+            productionBatches: defaultBatches
+        }, { merge: true });
+        setTeams(defaultTeams);
+        setBatches(defaultBatches);
       }
-    };
+    }, (error) => {
+      console.error("Error fetching teams from cloud:", error);
+    });
 
-    loadTeamsAndBatches();
+    return () => unsubscribe();
   }, []);
 
-  // Save helper
-  const saveTeamsAndBatches = (updatedTeams: ProductionTeam[], updatedBatches: ProductionBatch[]) => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({
-        productionTeams: updatedTeams,
-        productionBatches: updatedBatches
-      });
+  // Save helper to Firebase
+  const saveTeamsAndBatches = async (updatedTeams: ProductionTeam[], updatedBatches: ProductionBatch[]) => {
+    try {
+        const docRef = doc(db, 'warehouses', 'global_teams_config');
+        await setDoc(docRef, {
+            productionTeams: updatedTeams,
+            productionBatches: updatedBatches
+        }, { merge: true });
+    } catch (e) {
+        console.error("SYS:INVENTORY - Error saving Teams config to Firebase", e);
     }
-    localStorage.setItem('productionTeams', JSON.stringify(updatedTeams));
-    localStorage.setItem('productionBatches', JSON.stringify(updatedBatches));
   };
 
   // Add or Edit team
@@ -131,6 +120,7 @@ export function TeamsTab() {
       updatedTeams = [...teams, newTeam];
     }
 
+    // Local optimistic update
     setTeams(updatedTeams);
     saveTeamsAndBatches(updatedTeams, batches);
     resetTeamForm();
@@ -148,7 +138,7 @@ export function TeamsTab() {
   const handleDeleteTeam = (id: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa tổ sản xuất này không?")) {
       const updatedTeams = teams.filter(t => t.id !== id);
-      setTeams(updatedTeams);
+      setTeams(updatedTeams); // Optimistic update
       saveTeamsAndBatches(updatedTeams, batches);
     }
   };
@@ -185,7 +175,7 @@ export function TeamsTab() {
       updatedBatches = [...batches, newBatch];
     }
 
-    setBatches(updatedBatches);
+    setBatches(updatedBatches); // Optimistic update
     saveTeamsAndBatches(teams, updatedBatches);
     resetBatchForm();
   };

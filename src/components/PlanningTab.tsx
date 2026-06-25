@@ -2,13 +2,14 @@ import { useState, useMemo, useEffect } from 'react';
 import { BomRow } from './BomManagement';
 import { Calculator, Package, Layers, ChevronRight, Check, X, Cloud, CloudOff, RefreshCw, Send, Radio, Laptop, CheckCircle, Database, HelpCircle } from 'lucide-react';
 import { db, listenToWarehousesCloud, getBomFromCloud, syncInventoryToCloud, sendRemoteDispatch, Warehouse } from '../lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 
 interface PlanningTabProps {
   bomData: BomRow[];
+  isAdmin?: boolean;
 }
 
-export function PlanningTab({ bomData }: PlanningTabProps) {
+export function PlanningTab({ bomData, isAdmin = false }: PlanningTabProps) {
   const [selectedMaHang, setSelectedMaHang] = useState<string>('');
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, number>>({});
@@ -29,7 +30,10 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
   const [modelTeams, setModelTeams] = useState<Record<string, string>>({}); // model -> teamName
   const [modelBatches, setModelBatches] = useState<Record<string, string>>({}); // model -> batchName
 
-  // Load available teams & batches
+  const isExtensionInstalled = typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
+  const isRemoteMode = nodeMode === 'remote' && isAdmin && !isExtensionInstalled;
+
+  // Load available teams & batches from Firebase
   useEffect(() => {
     const defaultTeams = [
       { id: 't1', name: 'Tổ 1' },
@@ -45,36 +49,27 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
       { id: 'b4', name: 'Đợt 4', code: 'DOT-04' }
     ];
 
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['productionTeams', 'productionBatches'], (res) => {
-        if (res.productionTeams) {
-          setAvailableTeams(res.productionTeams);
-        } else {
-          setAvailableTeams(defaultTeams);
-        }
-
-        if (res.productionBatches) {
-          setAvailableBatches(res.productionBatches);
-        } else {
-          setAvailableBatches(defaultBatches);
-        }
-      });
-    } else {
-      const localTeams = localStorage.getItem('productionTeams');
-      const localBatches = localStorage.getItem('productionBatches');
-
-      if (localTeams) {
-        setAvailableTeams(JSON.parse(localTeams));
+    const docRef = doc(db, 'warehouses', 'global_teams_config');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.productionTeams) setAvailableTeams(data.productionTeams);
+        else setAvailableTeams(defaultTeams);
+        
+        if (data.productionBatches) setAvailableBatches(data.productionBatches);
+        else setAvailableBatches(defaultBatches);
       } else {
         setAvailableTeams(defaultTeams);
-      }
-
-      if (localBatches) {
-        setAvailableBatches(JSON.parse(localBatches));
-      } else {
         setAvailableBatches(defaultBatches);
       }
-    }
+    }, (error) => {
+      console.error("Error fetching teams from cloud:", error);
+      // Fallback
+      setAvailableTeams(defaultTeams);
+      setAvailableBatches(defaultBatches);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -153,17 +148,17 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
       console.error("Error fetching cloud BOM list:", err);
     });
 
-    if (nodeMode === 'remote') {
+    if (isRemoteMode) {
       const unsubscribe = listenToWarehousesCloud((list) => {
         setWarehouses(list);
       });
       return () => unsubscribe();
     }
-  }, [nodeMode]);
+  }, [isRemoteMode]);
 
   // Download remote warehouse inventory data when in Remote mode
   useEffect(() => {
-    if (nodeMode === 'remote' && remoteWarehouseId) {
+    if (isRemoteMode && remoteWarehouseId) {
       setSyncingCloud(true);
       const docRef = doc(db, 'warehouses', remoteWarehouseId);
       getDoc(docRef).then((docSnap) => {
@@ -180,7 +175,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
         setSyncingCloud(false);
       });
     }
-  }, [nodeMode, remoteWarehouseId]);
+  }, [isRemoteMode, remoteWarehouseId]);
 
   // Sync activeBomData with incoming prop, and handle deep-fetching for selected MaHang on Cloud
   useEffect(() => {
@@ -190,7 +185,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
   useEffect(() => {
     if (selectedMaHang) {
       const hasLocal = bomData.some(row => row.maHang === selectedMaHang);
-      if (!hasLocal || nodeMode === 'remote') {
+      if (!hasLocal || isRemoteMode) {
         getBomFromCloud(selectedMaHang).then((rows) => {
           if (rows && rows.length > 0) {
             console.log(`BOM downloaded from Cloud for: ${selectedMaHang} (${rows.length} rows)`);
@@ -202,11 +197,11 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
         }).catch(err => console.error("Failed to download cloud BOM:", err));
       }
     }
-  }, [selectedMaHang, bomData, nodeMode]);
+  }, [selectedMaHang, bomData, isRemoteMode]);
 
   // Auto-sync inventory data in Warehouse mode to Firebase Firestore
   useEffect(() => {
-    if (nodeMode === 'warehouse' && deviceId && inventoryData.length > 0) {
+    if (!isRemoteMode && deviceId && inventoryData.length > 0) {
       const deviceName = localStorage.getItem('deviceName') || 'Máy Trạm Kho ' + deviceId.split('-')[1];
       const timeout = setTimeout(() => {
         syncInventoryToCloud(deviceId, deviceName, inventoryData)
@@ -215,7 +210,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
       }, 1500);
       return () => clearTimeout(timeout);
     }
-  }, [inventoryData, nodeMode, deviceId]);
+  }, [inventoryData, isRemoteMode, deviceId]);
 
   const maHangOptions = useMemo(() => {
     const localCodes = bomData.map(row => row.maHang).filter(Boolean);
@@ -252,7 +247,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                   return text.replace(/[\s\u00A0]+/g, ' ').trim();
               }
 
-              function getCellFullText(cell: Element | null | undefined, isNumeric: boolean = false) {
+              function getCellFullText(cell: Element | null | undefined, isNumeric: boolean = false, headerName: string = "") {
                   if (!cell) return "";
 
                   // 1. Kiểm tra nếu có thẻ input, textarea, select (có thể hiển thị dạng form nhập liệu)
@@ -269,86 +264,118 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                       return normalizeText(cell.textContent);
                   }
 
-                  // 2. Tìm thẻ link 'a'. URL thường chứa tham số gốc không bị rút gọn.
-                  const link = cell.querySelector("a");
-                  if (link && link.href) {
-                      try {
-                          // Đảm bảo parse URL chính xác và thay thế tất cả &amp; bằng & trước khi phân tích
-                          let hrefAttr = link.getAttribute("href") || "";
-                          hrefAttr = hrefAttr.replace(/&amp;/gi, "&");
-                          
-                          let url;
-                          if (hrefAttr.startsWith("http://") || hrefAttr.startsWith("https://")) {
-                              url = new URL(hrefAttr);
-                          } else {
-                              url = new URL(hrefAttr, window.location.href || 'http://localhost');
-                          }
-
-                          // Kiểm tra các tham số truy vấn phổ biến hoặc bất kỳ tham số nào có giá trị dài/không bị cắt
-                          const searchParams = url.searchParams;
-                          // Danh sách tham số ưu tiên
-                          const priorityParams = ['loaipl', 'loai', 'name', 'ten', 'loai_pl', 'loai_phu_lieu', 'ma_phu_lieu', 'value'];
-                          for (const p of priorityParams) {
-                              // Thử tìm theo tham số chuẩn, hoặc tham số có tiền tố "amp;" trong trường hợp encode bị lỗi
-                              let val = searchParams.get(p);
-                              if (!val) {
-                                  val = searchParams.get('amp;' + p);
-                              }
-                              if (val && val.trim()) {
-                                  return normalizeText(val);
-                              }
-                          }
-
-                          // Nếu không có tham số ưu tiên, duyệt qua tất cả tham số để tìm giá trị dài nhất
-                          let longestParamVal = "";
-                          for (const [key, val] of (searchParams as any).entries()) {
-                              // Loại bỏ tiền tố "amp;" khỏi key trong quá trình so sánh nếu có
-                              if (val && val.trim() && val.length > longestParamVal.length) {
-                                  longestParamVal = val;
-                              }
-                          }
-                          if (longestParamVal && longestParamVal.length > 5) {
-                              return normalizeText(longestParamVal);
-                          }
-                      } catch (e) {
-                          // Bỏ qua lỗi parse URL
-                      }
-                  }
+                  const rawText = normalizeText(cell.textContent);
 
                   // 3. Kiểm tra các thuộc tính chứa text đầy đủ của cell hoặc các phần tử con
-                  // Các thuộc tính Tooltip hoặc Data thường chứa text nguyên bản
                   const attributesToCheck = [
                       "title", 
                       "data-original-title", 
                       "data-value", 
                       "data-text", 
-                      "data-name", 
-                      "data-content", 
-                      "alt"
+                      "data-content"
                   ];
 
-                  // Kiểm tra trên bản thân cell
+                  let attrText = "";
                   for (const attr of attributesToCheck) {
                       const val = cell.getAttribute(attr);
                       if (val && val.trim()) {
-                          return normalizeText(val);
+                          attrText = normalizeText(val);
+                          break;
                       }
                   }
 
-                  // Kiểm tra trên các thẻ con (span, a, div, dfn, label...)
-                  const children = cell.querySelectorAll("*");
-                  for (let i = 0; i < children.length; i++) {
-                      const child = children[i];
-                      for (const attr of attributesToCheck) {
-                          const val = child.getAttribute(attr);
-                          if (val && val.trim()) {
-                              return normalizeText(val);
+                  if (!attrText) {
+                      const children = cell.querySelectorAll("*");
+                      for (let i = 0; i < children.length; i++) {
+                          const child = children[i];
+                          for (const attr of attributesToCheck) {
+                              const val = child.getAttribute(attr);
+                              if (val && val.trim()) {
+                                  attrText = normalizeText(val);
+                                  break;
+                              }
                           }
+                          if (attrText) break;
                       }
                   }
 
-                  // 4. Fallback lấy textContent thông thường
-                  return normalizeText(cell.textContent);
+                  if (attrText && attrText !== "...") {
+                      if (attrText.toLowerCase() !== "xem chi tiết" && attrText.toLowerCase() !== "chi tiết") {
+                          return attrText;
+                      }
+                  }
+
+                  // Kiểm tra thẻ link 'a'. URL thường chứa tham số gốc không bị rút gọn.
+                  const aTag = cell.querySelector("a[href]") as HTMLAnchorElement;
+                  if (aTag && headerName) {
+                      try {
+                          let hrefAttr = aTag.getAttribute("href") || "";
+                          hrefAttr = hrefAttr.replace(/&amp;/gi, "&");
+                          
+                          let tempUrl;
+                          if (hrefAttr.startsWith("http://") || hrefAttr.startsWith("https://")) {
+                              tempUrl = new URL(hrefAttr);
+                          } else {
+                              tempUrl = new URL(hrefAttr, window.location.href || 'http://localhost');
+                          }
+
+                          let matchedParamText = null;
+                          const hdr = headerName.toUpperCase();
+                          let paramKeyToLookFor = "";
+
+                          if (hdr.includes("LOẠI")) paramKeyToLookFor = "loaipl";
+                          else if (hdr.includes("MÃ HÀNG")) paramKeyToLookFor = "mahang";
+                          else if (hdr === "MÃ P.O" || hdr === "PO") paramKeyToLookFor = "popl";
+                          else if (hdr === "MÀU SẮC" || hdr === "MÀU") paramKeyToLookFor = "maupl";
+                          else if (hdr.includes("SIZE")) paramKeyToLookFor = "sizepl"; 
+                          else if (hdr.includes("KHOANG") || hdr.includes("VỊ TRÍ")) paramKeyToLookFor = "vitrikhoang";
+                          else if (hdr.includes("MODEL")) paramKeyToLookFor = "model";
+                          else if (hdr.includes("ITEM")) paramKeyToLookFor = "itempl";
+
+                          const cleanRawTextForParams = rawText.replace(/[\.…\ufffd]/g, "").trim().toUpperCase();
+
+                          if (paramKeyToLookFor && tempUrl.searchParams.has(paramKeyToLookFor)) {
+                              const mappedVal = tempUrl.searchParams.get(paramKeyToLookFor);
+                              if (mappedVal && mappedVal.trim()) {
+                                  const upperMappedVal = mappedVal.trim().toUpperCase();
+                                  if (cleanRawTextForParams.length < 2 || upperMappedVal.startsWith(cleanRawTextForParams)) {
+                                      matchedParamText = mappedVal.trim();
+                                  }
+                              }
+                          } 
+                          
+                          if (!matchedParamText && hdr.includes("SIZE") && tempUrl.searchParams.has("thongso")) {
+                              const mappedVal = tempUrl.searchParams.get("thongso");
+                              if (mappedVal && mappedVal.trim()) {
+                                  const upperMappedVal = mappedVal.trim().toUpperCase();
+                                  if (cleanRawTextForParams.length < 2 || upperMappedVal.startsWith(cleanRawTextForParams)) {
+                                      matchedParamText = mappedVal.trim();
+                                  }
+                              }
+                          }
+
+                          if (matchedParamText) {
+                              return normalizeText(matchedParamText);
+                          }
+
+                          tempUrl.searchParams.forEach((val) => {
+                              const decodedVal = val.trim();
+                              const upperVal = decodedVal.toUpperCase();
+                              if (cleanRawTextForParams.length >= 2 && upperVal.length > cleanRawTextForParams.length && upperVal.startsWith(cleanRawTextForParams)) {
+                                  matchedParamText = decodedVal;
+                              }
+                          });
+                          
+                          if (matchedParamText) {
+                              return normalizeText(matchedParamText);
+                          }
+
+                      } catch (e) {
+                          // Ignore
+                      }
+                  }
+
+                  return rawText;
               }
 
               let headers: string[] = [];
@@ -395,10 +422,65 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                   const cells = row.querySelectorAll("td");
 
                   if (cells.length > 0) {
+                      // Trích xuất các tham số từ các link <a> trong toàn bộ dòng (VD: edit links như change.php có chứa các thông số gốc của cơ sở dữ liệu)
+                      const rowParams: Record<string, string> = {};
+                      const allLinksInRow = row.querySelectorAll("a[href]");
+                      allLinksInRow.forEach(link => {
+                          try {
+                              const href = link.getAttribute("href") || "";
+                              if (href) {
+                                  const cleanHref = href.replace(/&amp;/gi, "&");
+                                  let urlObj;
+                                  if (cleanHref.startsWith("http://") || cleanHref.startsWith("https://")) {
+                                      urlObj = new URL(cleanHref);
+                                  } else {
+                                      urlObj = new URL(cleanHref, window.location.href || 'http://localhost');
+                                  }
+                                  urlObj.searchParams.forEach((val, key) => {
+                                      const cleanKey = key.toLowerCase().replace(/^amp;/, "");
+                                      if (val && val.trim()) {
+                                          rowParams[cleanKey] = val.trim();
+                                      }
+                                  });
+                              }
+                          } catch (err) {
+                              // Bỏ qua lỗi parse URL
+                          }
+                      });
+
                       normalizedHeaders.forEach((header, index) => {
                           if (header && cells[index]) {
                               const isNumeric = header === 'SL NHẬP' || header === 'SL XUẤT' || header === 'TỒN';
-                              let cellText = getCellFullText(cells[index], isNumeric);
+
+                              // Ưu tiên lấy từ các tham số trong link của dòng để lấy dữ liệu gốc sạch
+                              let paramVal = null;
+                              if (!isNumeric) {
+                                  const hdr = header.toUpperCase();
+                                  if (hdr.includes("LOẠI")) {
+                                      paramVal = rowParams["loaipl"] || rowParams["loai_pl"] || rowParams["loai"];
+                                  } else if (hdr.includes("MÃ HÀNG")) {
+                                      paramVal = rowParams["mahang"] || rowParams["ma_hang"];
+                                  } else if (hdr === "MÃ P.O" || hdr === "PO") {
+                                      paramVal = rowParams["popl"] || rowParams["po"];
+                                  } else if (hdr === "MÀU SẮC" || hdr === "MÀU") {
+                                      paramVal = rowParams["maupl"] || rowParams["mau"];
+                                  } else if (hdr.includes("SIZE")) {
+                                      paramVal = rowParams["sizepl"] || rowParams["size"] || rowParams["thongso"];
+                                  } else if (hdr.includes("KHOANG") || hdr.includes("VỊ TRÍ")) {
+                                      paramVal = rowParams["vitrikhoang"] || rowParams["khoang"];
+                                  } else if (hdr.includes("MODEL")) {
+                                      paramVal = rowParams["model"];
+                                  } else if (hdr.includes("ITEM")) {
+                                      paramVal = rowParams["itempl"] || rowParams["item"];
+                                  }
+                              }
+
+                              let cellText;
+                              if (paramVal && paramVal.trim() && !paramVal.includes("")) {
+                                  cellText = paramVal.trim();
+                              } else {
+                                  cellText = getCellFullText(cells[index], isNumeric, header);
+                              }
 
                               if (isNumeric) {
                                   const cleanedText = cellText.replace(/,/g, ''); 
@@ -602,7 +684,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {/* CLOUD CONNECT HEADER DROPDOWN (ONLY FOR REMOTE CONTROLLER MODE) */}
-          {nodeMode === 'remote' && (
+          {nodeMode === 'remote' && isAdmin && !(typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) && (
             <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-800 uppercase tracking-wider">
@@ -952,7 +1034,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                     }
                 
                     // If in Remote controller mode, push dispatch to Cloud (Firestore)
-                    if (nodeMode === 'remote') {
+                    if (isRemoteMode) {
                         if (!remoteWarehouseId) {
                             alert("Vui lòng chọn một Máy Trạm Kho tại cột Kết nối Kho từ xa ở bên trái.");
                             return;
@@ -1011,7 +1093,7 @@ export function PlanningTab({ bomData }: PlanningTabProps) {
                   disabled={syncingCloud}
                 >
                   {syncingCloud ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {nodeMode === 'remote' ? 'Gửi Lệnh Từ Xa' : 'Tạo Lệnh Xuất Kho'}
+                  {isRemoteMode ? 'Gửi Lệnh Từ Xa' : 'Tạo Lệnh Xuất Kho'}
                 </button>
               )}
             </div>
