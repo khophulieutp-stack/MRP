@@ -93,10 +93,17 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
                 else if (hdr.includes("MODEL")) paramKeyToLookFor = "model";
                 else if (hdr.includes("ITEM")) paramKeyToLookFor = "itempl";
 
+                const cleanRawTextForParams = rawText.replace(/[\.…\ufffd]/g, "").trim().toUpperCase();
+
                 if (paramKeyToLookFor && tempUrl.searchParams.has(paramKeyToLookFor)) {
                     const mappedVal = tempUrl.searchParams.get(paramKeyToLookFor);
                     if (mappedVal && mappedVal.trim()) {
-                        matchedParamText = mappedVal.trim();
+                        const upperMappedVal = mappedVal.trim().toUpperCase();
+                        // Only use mappedVal if it provides more complete information 
+                        // (starts with the cleaned raw text) OR if rawText is extremely short/empty
+                        if (cleanRawTextForParams.length < 2 || upperMappedVal.startsWith(cleanRawTextForParams)) {
+                            matchedParamText = mappedVal.trim();
+                        }
                     }
                 } 
                 
@@ -104,7 +111,10 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
                 if (!matchedParamText && hdr.includes("SIZE") && tempUrl.searchParams.has("thongso")) {
                     const mappedVal = tempUrl.searchParams.get("thongso");
                     if (mappedVal && mappedVal.trim()) {
-                        matchedParamText = mappedVal.trim();
+                        const upperMappedVal = mappedVal.trim().toUpperCase();
+                        if (cleanRawTextForParams.length < 2 || upperMappedVal.startsWith(cleanRawTextForParams)) {
+                            matchedParamText = mappedVal.trim();
+                        }
                     }
                 }
 
@@ -113,7 +123,6 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
                 }
 
                 // If explicit mapping failed, use the fallback logic:
-                const cleanRawTextForParams = rawText.replace(/[\.…]/g, "").trim().toUpperCase();
                 tempUrl.searchParams.forEach((val, key) => {
                     const decodedVal = val.trim();
                     const upperVal = decodedVal.toUpperCase();
@@ -183,13 +192,67 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
             const cells = row.querySelectorAll("td");
 
             if (cells.length > 0) {
+                // Trích xuất các tham số từ các link <a> trong toàn bộ dòng (VD: edit links như change.php có chứa các thông số gốc của cơ sở dữ liệu)
+                const rowParams = {};
+                const allLinksInRow = row.querySelectorAll("a[href]");
+                allLinksInRow.forEach(link => {
+                    try {
+                        const href = link.getAttribute("href") || "";
+                        if (href) {
+                            const cleanHref = href.replace(/&amp;/gi, "&");
+                            let urlObj;
+                            if (cleanHref.startsWith("http://") || cleanHref.startsWith("https://")) {
+                                urlObj = new URL(cleanHref);
+                            } else {
+                                urlObj = new URL(cleanHref, window.location.href);
+                            }
+                            urlObj.searchParams.forEach((val, key) => {
+                                const cleanKey = key.toLowerCase().replace(/^amp;/, "");
+                                if (val && val.trim()) {
+                                    rowParams[cleanKey] = val.trim();
+                                }
+                            });
+                        }
+                    } catch (err) {
+                        // Bỏ qua lỗi parse URL
+                    }
+                });
+
                 normalizedHeaders.forEach((header, index) => {
                     if (header && cells[index]) {
                         const originalHeader = headers[index] ? normalizeText(headers[index]).toUpperCase() : '';
 
                         let cellText;
                         const isNumeric = header === 'SL NHẬP' || header === 'SL XUẤT' || header === 'TỒN';
-                        cellText = getCellFullText(cells[index], isNumeric, header);
+
+                        // Ưu tiên lấy từ các tham số trong link của dòng để lấy dữ liệu gốc sạch
+                        let paramVal = null;
+                        if (!isNumeric) {
+                            const hdr = header.toUpperCase();
+                            if (hdr.includes("LOẠI")) {
+                                paramVal = rowParams["loaipl"] || rowParams["loai_pl"] || rowParams["loai"];
+                            } else if (hdr.includes("MÃ HÀNG")) {
+                                paramVal = rowParams["mahang"] || rowParams["ma_hang"];
+                            } else if (hdr === "MÃ P.O" || hdr === "PO") {
+                                paramVal = rowParams["popl"] || rowParams["po"];
+                            } else if (hdr === "MÀU SẮC" || hdr === "MÀU") {
+                                paramVal = rowParams["maupl"] || rowParams["mau"];
+                            } else if (hdr.includes("SIZE")) {
+                                paramVal = rowParams["sizepl"] || rowParams["size"] || rowParams["thongso"];
+                            } else if (hdr.includes("KHOANG") || hdr.includes("VỊ TRÍ")) {
+                                paramVal = rowParams["vitrikhoang"] || rowParams["khoang"];
+                            } else if (hdr.includes("MODEL")) {
+                                paramVal = rowParams["model"];
+                            } else if (hdr.includes("ITEM")) {
+                                paramVal = rowParams["itempl"] || rowParams["item"];
+                            }
+                        }
+
+                        if (paramVal && paramVal.trim() && !paramVal.includes("")) {
+                            cellText = paramVal.trim();
+                        } else {
+                            cellText = getCellFullText(cells[index], isNumeric, header);
+                        }
 
                         // Định dạng số cho SL NHẬP, SL XUẤT, TỒN, còn lại chuyển in hoa chuyên nghiệp
                         if (isNumeric) {
@@ -285,35 +348,101 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
 
     // Hàm đồng nhất ghép nối & gộp thông minh giữa kho đã lưu và dữ liệu mới cào
     function mergeAndAggregateLists(existingList, newList) {
+        // Bước 1: Gộp newList (dữ liệu mới cào) lại với nhau
+        const newListMap = {};
+        
+        const createFullKey = (item) => {
+            return [
+                item['MÃ HÀNG'],
+                item['MODEL'],
+                item['LOẠI'],
+                item['TS / SIZE'] || item['THÔNG SỐ / SIZE'] || item['SIZE'],
+                item['MÀU'],
+                item['PO'],
+                item['KHOANG']
+            ].map(v => (v || '').toString().trim().toUpperCase()).join('::');
+        };
+
+        const createBaseKey = (item) => {
+            return [
+                item['MÃ HÀNG'],
+                item['MODEL'],
+                item['TS / SIZE'] || item['THÔNG SỐ / SIZE'] || item['SIZE'],
+                item['MÀU'],
+                item['PO']
+            ].map(v => (v || '').toString().trim().toUpperCase()).join('::');
+        };
+
+        newList.forEach(item => {
+            const key = createFullKey(item);
+            if (!newListMap[key]) {
+                newListMap[key] = { ...item };
+            } else {
+                newListMap[key]['SL NHẬP'] = (parseFloat(newListMap[key]['SL NHẬP'] || '0') + parseFloat(item['SL NHẬP'] || '0')).toString();
+                newListMap[key]['SL XUẤT'] = (parseFloat(newListMap[key]['SL XUẤT'] || '0') + parseFloat(item['SL XUẤT'] || '0')).toString();
+            }
+        });
+
+        const list2Aggregated = Object.values(newListMap);
+
+        // Bước 2: Xử lý existingList (dữ liệu cũ)
         const mergedMap = {};
 
-        // 1. Thêm existingList vào map để giữ lại các sản phẩm cào từ trước
-        existingList.forEach(item => {
-            const key = getRowKey(item);
-            if (!key) return;
-            mergedMap[key] = {
-                ...item,
-                'SL NHẬP': parseFloat(item['SL NHẬP'] || '0'),
-                'SL XUẤT': parseFloat(item['SL XUẤT'] || '0')
-            };
+        existingList.forEach(oldItem => {
+            const oldFullKey = createFullKey(oldItem);
+            const oldBaseKey = createBaseKey(oldItem);
+            const oldNhap = parseFloat(oldItem['SL NHẬP'] || '0');
+            const oldKhoang = (oldItem['KHOANG'] || '').toString().trim().toUpperCase();
+            
+            let superseded = false;
+
+            for (const newItem of list2Aggregated) {
+                const newFullKey = createFullKey(newItem);
+                const newBaseKey = createBaseKey(newItem);
+                const newNhap = parseFloat(newItem['SL NHẬP'] || '0');
+                const newKhoang = (newItem['KHOANG'] || '').toString().trim().toUpperCase();
+                
+                if (oldFullKey === newFullKey) {
+                    superseded = true;
+                    break;
+                }
+                
+                if (oldBaseKey === newBaseKey) {
+                    // Nếu trùng baseKey (PO, Model, Size, Màu, Mã hàng) và có cùng số lượng NHẬP
+                    // Điều này cho thấy đây là cùng một mặt hàng nhưng đã đổi KHOANG hoặc LOẠI trên hệ thống ERP
+                    if (oldNhap === newNhap && oldNhap > 0) {
+                        superseded = true;
+                        break;
+                    }
+                    
+                    // Nếu cùng khoang, nhưng tên LOẠI bị thiếu/cụt (ví dụ: DÂY KÉO SƯ vs DÂY KÉO SƯỜN ỐNG)
+                    if (oldKhoang === newKhoang) {
+                        const oldLoai = (oldItem['LOẠI'] || '').toString().replace(/[\ufffd]/g, '').toUpperCase();
+                        const newLoai = (newItem['LOẠI'] || '').toString().replace(/[\ufffd]/g, '').toUpperCase();
+                        
+                        if (oldLoai.includes(newLoai) || newLoai.includes(oldLoai)) {
+                            superseded = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!superseded) {
+                mergedMap[oldFullKey] = { ...oldItem };
+            }
         });
 
-        // 2. Thêm newList vào map (ghi đè SL NHẬP / SL XUẤT của những mặt hàng đang xem trên màn hình)
-        // Vì list mới cào là dữ liệu mới nhất, chính xác nhất về các giao dịch của mặt hàng đó
-        newList.forEach(item => {
-            const key = getRowKey(item);
-            if (!key) return;
-            mergedMap[key] = {
-                ...item,
-                'SL NHẬP': parseFloat(item['SL NHẬP'] || '0'),
-                'SL XUẤT': parseFloat(item['SL XUẤT'] || '0')
-            };
+        // Bước 3: Đưa dữ liệu mới vào
+        list2Aggregated.forEach(newItem => {
+            const newFullKey = createFullKey(newItem);
+            mergedMap[newFullKey] = { ...newItem };
         });
 
-        // 3. Tính toán lại TỒN thực tế = SL NHẬP - SL XUẤT cho tất cả, chỉ giữ lại những dòng có tồn > 0
+        // Bước 4: Tính toán lại TỒN thực tế = SL NHẬP - SL XUẤT, chỉ giữ lại tồn > 0
         return Object.values(mergedMap).map(groupedRow => {
-            const nhap = groupedRow['SL NHẬP'];
-            const xuat = groupedRow['SL XUẤT'];
+            const nhap = parseFloat(groupedRow['SL NHẬP'] || '0');
+            const xuat = parseFloat(groupedRow['SL XUẤT'] || '0');
             const ton = nhap - xuat;
             return {
                 ...groupedRow,
@@ -325,6 +454,58 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
     }
 
     // Chạy đồng bộ tự động và lưu vào chrome.storage.local (với tính năng ghép/cập nhật thông minh)
+    async function updateFirebaseREST(data) {
+        try {
+            const projectId = "gen-lang-client-0889659541";
+            const databaseId = "ai-studio-c65333fd-043d-4cce-b990-a985158ab910";
+            
+            // Get deviceId from local storage or set a default one
+            let deviceId = localStorage.getItem('deviceId');
+            if (!deviceId) {
+                deviceId = 'STATION-AUTO';
+                localStorage.setItem('deviceId', deviceId);
+            }
+            
+            let deviceName = localStorage.getItem('deviceName') || 'Máy Trạm Tự Động';
+
+            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/warehouses/${deviceId}?updateMask.fieldPaths=id&updateMask.fieldPaths=name&updateMask.fieldPaths=lastSyncTime&updateMask.fieldPaths=status&updateMask.fieldPaths=scrapedInventoryData`;
+
+            // Transform data arrays to Firestore REST API format
+            const valuesArray = data.map(item => {
+                const mapValueFields = {};
+                for (const key in item) {
+                    mapValueFields[key] = { stringValue: String(item[key]) };
+                }
+                return { mapValue: { fields: mapValueFields } };
+            });
+
+            const payload = {
+                fields: {
+                    id: { stringValue: deviceId },
+                    name: { stringValue: deviceName },
+                    lastSyncTime: { stringValue: new Date().toISOString() },
+                    status: { stringValue: "Online" },
+                    scrapedInventoryData: {
+                        arrayValue: {
+                            values: valuesArray
+                        }
+                    }
+                }
+            };
+
+            await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            console.log("SYS:INVENTORY - Data synced to Firebase successfully");
+        } catch (e) {
+            console.error("SYS:INVENTORY - Firebase sync failed", e);
+        }
+    }
+
     function autoSync() {
         const newData = scrapeUniversalData();
         if (!newData || newData.length === 0) return;
@@ -343,9 +524,20 @@ if (typeof window.contentScriptLoaded_universal_v5 === 'undefined') {
                         lastSyncTime: new Date().toISOString()
                     }, () => {
                         console.log(`SYS:INVENTORY - Cập nhật đồng bộ thông minh. Tổng dòng: ${mergedList.length}.`);
+                        updateFirebaseREST(mergedList);
                     });
+                } else {
+                    // Cập nhật Firebase ngay cả khi không có thay đổi local để đánh dấu "Online"
+                    updateFirebaseREST(mergedList);
                 }
             });
+        } else {
+             // Non-extension fallback
+             const existingDataStr = localStorage.getItem('scrapedInventoryData');
+             const existingData = existingDataStr ? JSON.parse(existingDataStr) : [];
+             const mergedList = mergeAndAggregateLists(existingData, newData);
+             localStorage.setItem('scrapedInventoryData', JSON.stringify(mergedList));
+             updateFirebaseREST(mergedList);
         }
     }
 
